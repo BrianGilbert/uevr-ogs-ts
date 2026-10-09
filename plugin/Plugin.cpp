@@ -1,0 +1,172 @@
+// Plugin.cpp — OGSA-TS telemetry for UEVR (praydog's Universal UE VR mod).
+//
+// Publishes the LOCAL PAWN's world pose (the object the player controls —
+// not the HMD/camera: the camera is engine-smoothed and rig-following it
+// would feed platform motion back into telemetry; see the OGSA knowledge
+// base, projects/uevr, ruling C-20261010-MBP-08) as OGSA-TS motion
+// telemetry over UDP multicast. Zero game modification; LAN only.
+//
+// Install: drop the DLL next to this file's build output into
+//   <uevr>/plugins/   (per-game: <game>/uevr/plugins/)
+// Config: ogsa_telemetry.ini beside the DLL (optional):
+//   group=239.255.17.17  port=40123  ttl=1  motionHz=60
+//   objectName=player    objectType=humanoid|vehicle|aircraft|watercraft|spacecraft
+//   gameName=<exe name by default>   engine=ue5|ue4   (FVector ABI: LWC doubles vs floats)
+//
+// UEVR plugin API vendored under vendor/uevr (MIT, praydog, pinned
+// @4ee5c6b); serializer vendored from ogsa-ts-unreal (corpus-locked).
+#include <winsock2.h>
+#include <windows.h>
+#include <cmath>
+#include <cstdio>
+#include <fstream>
+#include <string>
+
+#include "uevr/API.h"
+#include "ogsa_publisher.h"
+
+static const UEVR_PluginInitializeParam* g_api = nullptr;
+static ogsa::Publisher g_publisher;
+static bool g_engineIsUE4 = false; // FVector/FRotator ABI: UE5 = doubles (LWC)
+static HMODULE g_module = nullptr;
+
+// ---- UE math (transcribed from FRotator::Quaternion(), UnrealMath) ----
+// FRotator: Pitch about Y, Yaw about Z, Roll about X; degrees; UE frame.
+static ogsa::telemetry::Quat RotatorToQuat(double pitchDeg, double yawDeg,
+                                           double rollDeg)
+{
+    const double half = 3.14159265358979323846 / 180.0 / 2.0;
+    const double sp = std::sin(pitchDeg * half), cp = std::cos(pitchDeg * half);
+    const double sy = std::sin(yawDeg * half),   cy = std::cos(yawDeg * half);
+    const double sr = std::sin(rollDeg * half),  cr = std::cos(rollDeg * half);
+    return {
+        (float)(cr * sp * sy - sr * cp * cy),  // x
+        (float)(-cr * sp * cy - sr * cp * sy), // y
+        (float)(cr * cp * sy - sr * sp * cy),  // z
+        (float)(cr * cp * cy + sr * sp * sy),  // w
+    };
+}
+
+// ---- pawn sampling ----
+struct FVectorUE5 { double X, Y, Z; };
+struct FRotatorUE5 { double Pitch, Yaw, Roll; };
+struct FVectorUE4 { float X, Y, Z; };
+struct FRotatorUE4 { float Pitch, Yaw, Roll; };
+
+static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
+                       ogsa::telemetry::Quat& quat)
+{
+    const UEVR_SDKData* sdk = g_api->sdk;
+    UEVR_UObjectHandle pawn = sdk->functions->get_local_pawn(0);
+    if (pawn == nullptr) return false;
+
+    if (g_engineIsUE4)
+    {
+        FVectorUE4 loc{};
+        FRotatorUE4 rot{};
+        sdk->uobject->call_function(pawn, L"K2_GetActorLocation", &loc);
+        sdk->uobject->call_function(pawn, L"K2_GetActorRotation", &rot);
+        posCm = { loc.X, loc.Y, loc.Z };
+        quat = RotatorToQuat(rot.Pitch, rot.Yaw, rot.Roll);
+    }
+    else
+    {
+        FVectorUE5 loc{};
+        FRotatorUE5 rot{};
+        sdk->uobject->call_function(pawn, L"K2_GetActorLocation", &loc);
+        sdk->uobject->call_function(pawn, L"K2_GetActorRotation", &rot);
+        posCm = { (float)loc.X, (float)loc.Y, (float)loc.Z };
+        quat = RotatorToQuat(rot.Pitch, rot.Yaw, rot.Roll);
+    }
+    return true;
+}
+
+static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
+{
+    ogsa::telemetry::Vec3 pos;
+    ogsa::telemetry::Quat quat;
+    const bool hasPose = SamplePawn(pos, quat);
+    g_publisher.tick((double)deltaSeconds, hasPose, pos, quat);
+}
+
+// ---- config ----
+static std::string ConfigPath()
+{
+    char path[MAX_PATH]{};
+    GetModuleFileNameA(g_module, path, MAX_PATH);
+    std::string p(path);
+    const auto slash = p.find_last_of("\\/");
+    return slash == std::string::npos ? "ogsa_telemetry.ini"
+                                      : p.substr(0, slash + 1) + "ogsa_telemetry.ini";
+}
+
+static std::string DefaultGameName()
+{
+    char path[MAX_PATH]{};
+    GetModuleFileNameA(nullptr, path, MAX_PATH);
+    std::string p(path);
+    const auto slash = p.find_last_of("\\/");
+    const auto dot = p.find_last_of('.');
+    return p.substr(slash + 1, dot - slash - 1);
+}
+
+static uint16_t ObjectTypeFromName(const std::string& s)
+{
+    if (s == "vehicle") return 0;
+    if (s == "aircraft") return 1;
+    if (s == "watercraft") return 2;
+    if (s == "spacecraft") return 3;
+    if (s == "camera") return 5;
+    return 4; // humanoid
+}
+
+static void LoadConfig(ogsa::PublisherConfig& cfg)
+{
+    std::ifstream ini(ConfigPath());
+    if (!ini) return;
+    std::string line;
+    while (std::getline(ini, line))
+    {
+        const auto eq = line.find('=');
+        if (eq == std::string::npos) continue;
+        const std::string key = line.substr(0, eq), val = line.substr(eq + 1);
+        if (key == "group") cfg.group = _strdup(val.c_str());
+        else if (key == "port") cfg.port = atoi(val.c_str());
+        else if (key == "ttl") cfg.ttl = atoi(val.c_str());
+        else if (key == "motionHz") cfg.motionHz = atof(val.c_str());
+        else if (key == "objectName") cfg.objectName = _strdup(val.c_str());
+        else if (key == "objectType") cfg.objectType = ObjectTypeFromName(val);
+        else if (key == "gameName") cfg.gameName = _strdup(val.c_str());
+        else if (key == "engine") g_engineIsUE4 = (val == "ue4");
+    }
+}
+
+// ---- plugin entry point ----
+extern "C" __declspec(dllexport) bool uevr_plugin_initialize(
+    const UEVR_PluginInitializeParam* param)
+{
+    g_api = param;
+
+    ogsa::PublisherConfig cfg;
+    cfg.gameName = _strdup(DefaultGameName().c_str());
+    LoadConfig(cfg);
+
+    if (!g_publisher.start(cfg))
+    {
+        param->functions->log_error(
+            "[ogsa] failed to create multicast socket — plugin disabled");
+        return false;
+    }
+    param->sdk->callbacks->on_post_engine_tick(OnEngineTick);
+    param->functions->log_info("[ogsa] OGSA-TS telemetry loaded: pawn '%s' "
+                               "from '%s' -> %s:%d (%s ABI)",
+                               cfg.objectName, cfg.gameName, cfg.group,
+                               cfg.port, g_engineIsUE4 ? "UE4" : "UE5");
+    return true;
+}
+
+BOOL APIENTRY DllMain(HMODULE module, DWORD reason, LPVOID)
+{
+    if (reason == DLL_PROCESS_ATTACH) g_module = module;
+    return TRUE;
+}

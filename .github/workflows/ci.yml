@@ -1,0 +1,16 @@
+name: ci
+# Windows build of the UEVR plugin DLL + the standalone smoke test
+# (conversion assertions + 150 synthetic ticks; exit-code gated).
+on: [push, pull_request]
+
+jobs:
+  build-and-smoke:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Configure + build
+        run: |
+          cmake -B build -S .
+          cmake --build build --config Release
+      - name: Run smoke test
+        run: build/Release/ogsa_smoke.exe
