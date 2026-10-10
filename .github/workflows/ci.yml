@@ -5,6 +5,8 @@ name: ci
 # the DLL + README; a same-day rerun appends the run number
 # (v2026.10.12.N) so tags stay unique. The plugin depends on nothing
 # but UEVR at runtime and ws2_32 at link time — no UE4SS involved.
+# Action pins are Node-24 majors (checkout@v7, artifact@v7/v8,
+# gh-release@v3) — Node-20 actions log deprecation warnings.
 on:
   push:
     branches: [main]
@@ -17,7 +19,7 @@ jobs:
   build-and-smoke:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Configure + build
         run: |
           cmake -B build -S .
@@ -26,7 +28,7 @@ jobs:
         run: build/Release/ogsa_smoke.exe
       - name: Upload DLL artifact
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ogsa_telemetry-dll
           path: build/Release/ogsa_telemetry.dll
@@ -39,12 +41,12 @@ jobs:
     permissions:
       contents: write
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history + tags for the same-day tag check
           fetch-tags: true
       - name: Download DLL artifact
-        uses: actions/download-artifact@v4
+        uses: actions/download-artifact@v8
         with:
           name: ogsa_telemetry-dll
       - name: CalVer tag
@@ -66,7 +68,7 @@ jobs:
           Compress-Archive -Path ogsa_telemetry.dll, README.md -DestinationPath $name
           "zip=$name" >> $env:GITHUB_ENV
       - name: Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.calver.outputs.tag }}
           name: ${{ steps.calver.outputs.tag }}
