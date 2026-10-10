@@ -12,7 +12,9 @@
   commit recorded in the header comment; refresh deliberately and
   re-read the changelog for ABI changes.
 - UE4 vs UE5 ABI: FVector/FRotator are doubles on UE5 (LWC), floats on
-  UE4 — the config `engine=` flag switches the K2-call param layouts.
-  UEVR catalog today is UE5-dominated; ue4 is best-effort.
+  UE4 — auto-detected at runtime from K2_GetActorLocation's UFunction
+  params size (12 = UE4, 24 = UE5); the config `engine=ue4|ue5` forces.
+  A wrong ABI silently corrupts pose (UE4 floats read as doubles →
+  0,0,~1e30 garbage; observed in-game on Stray, 2026-10-12).
 - Product docs describe current state only; history lives in the
   Open-Game-Standards-Alliance knowledge base (knowledge/README.md bridge).

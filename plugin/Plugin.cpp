@@ -11,7 +11,14 @@
 // Config: ogsa_telemetry.ini beside the DLL (optional):
 //   group=239.255.17.17  port=40123  ttl=1  motionHz=60
 //   objectName=player    objectType=humanoid|vehicle|aircraft|watercraft|spacecraft
-//   gameName=<exe name by default>   engine=ue5|ue4   (FVector ABI: LWC doubles vs floats)
+//   gameName=<exe name by default>   engine=auto|ue4|ue5 (FVector ABI)
+//
+// The FVector/FRotator ABI is auto-detected at runtime (default) by
+// measuring K2_GetActorLocation's UFunction params size: 12 bytes =
+// UE4 floats, 24 = UE5 LWC doubles. engine=ue4|ue5 forces it. A wrong
+// ABI silently corrupts pose: UEVR writes the native return into the
+// caller's buffer, so UE4 floats read as UE5 doubles produce 0,0,1e30
+// garbage (first observed in-game on Stray/UE4, 2026-10-12).
 //
 // UEVR plugin API vendored under vendor/uevr (MIT, praydog, pinned
 // @4ee5c6b); serializer vendored from ogsa-ts-unreal (corpus-locked).
@@ -27,7 +34,9 @@
 
 static const UEVR_PluginInitializeParam* g_api = nullptr;
 static ogsa::Publisher g_publisher;
-static bool g_engineIsUE4 = false; // FVector/FRotator ABI: UE5 = doubles (LWC)
+// FVector/FRotator ABI: UE5 = doubles (LWC, 24 bytes), UE4 = floats (12).
+// -1 = auto-detect pending (default), 1 = UE4, 0 = UE5. INI forces via engine=.
+static int g_engineIsUE4 = -1;
 static HMODULE g_module = nullptr;
 
 // ---- UE math (transcribed from FRotator::Quaternion(), UnrealMath) ----
@@ -53,12 +62,38 @@ struct FRotatorUE5 { double Pitch, Yaw, Roll; };
 struct FVectorUE4 { float X, Y, Z; };
 struct FRotatorUE4 { float Pitch, Yaw, Roll; };
 
+// K2_GetActorLocation has no parameters and returns FVector, so the
+// UFunction's properties size IS the FVector size: 12 bytes = UE4
+// floats, 24 = UE5 LWC doubles. Measuring beats trusting a config
+// guess — UEVR writes only that many bytes into our buffer, and a
+// mismatch reads as denormals/garbage doubles, not zeros.
+static void DetectEngineAbi(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
+{
+    UEVR_UStructHandle fn = nullptr;
+    if (UEVR_UStructHandle cls =
+            (UEVR_UStructHandle)sdk->uobject->get_class(pawn))
+        fn = (UEVR_UStructHandle)sdk->ustruct->find_function(
+            cls, L"K2_GetActorLocation");
+    // handles are opaque strong typedefs; UFunction IS a UStruct
+    const int size = fn ? sdk->ustruct->get_properties_size(fn) : 0;
+    if (size <= 0) return; // not resolvable yet — retry next tick
+    g_engineIsUE4 = (size < 24) ? 1 : 0;
+    g_api->functions->log_info("[ogsa] FVector ABI auto-detected: params "
+                               "size %d -> %s", size,
+                               g_engineIsUE4 ? "UE4 (floats)" : "UE5 (doubles)");
+}
+
 static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
                        ogsa::telemetry::Quat& quat)
 {
     const UEVR_SDKData* sdk = g_api->sdk;
     UEVR_UObjectHandle pawn = sdk->functions->get_local_pawn(0);
     if (pawn == nullptr) return false;
+    if (g_engineIsUE4 < 0)
+    {
+        DetectEngineAbi(sdk, pawn);
+        if (g_engineIsUE4 < 0) return false; // never publish unresolved ABI
+    }
 
     if (g_engineIsUE4)
     {
@@ -137,7 +172,12 @@ static void LoadConfig(ogsa::PublisherConfig& cfg)
         else if (key == "objectName") cfg.objectName = _strdup(val.c_str());
         else if (key == "objectType") cfg.objectType = ObjectTypeFromName(val);
         else if (key == "gameName") cfg.gameName = _strdup(val.c_str());
-        else if (key == "engine") g_engineIsUE4 = (val == "ue4");
+        else if (key == "engine")
+        {
+            if (val == "ue4") g_engineIsUE4 = 1;
+            else if (val == "ue5") g_engineIsUE4 = 0;
+            else g_engineIsUE4 = -1; // auto (default)
+        }
     }
 }
 
@@ -159,9 +199,12 @@ extern "C" __declspec(dllexport) bool uevr_plugin_initialize(
     }
     param->sdk->callbacks->on_post_engine_tick(OnEngineTick);
     param->functions->log_info("[ogsa] OGSA-TS telemetry loaded: pawn '%s' "
-                               "from '%s' -> %s:%d (%s ABI)",
+                               "from '%s' -> %s:%d (engine ABI: %s)",
                                cfg.objectName, cfg.gameName, cfg.group,
-                               cfg.port, g_engineIsUE4 ? "UE4" : "UE5");
+                               cfg.port,
+                               g_engineIsUE4 == 1 ? "ue4 (forced)"
+                               : g_engineIsUE4 == 0 ? "ue5 (forced)"
+                               : "auto-detect on first pawn");
     return true;
 }
 

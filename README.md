@@ -6,12 +6,11 @@ telemetry from **any UE4/UE5 game UEVR injects** — zero game
 modification, LAN-only UDP multicast. Motion platforms, haptic hardware,
 and dashboards on the local network can follow the game.
 
-Status: **smoke-verified** — the wire path (socket → corpus-locked
-serializer → multicast) and the full UE math chain (FRotator →
-`FRotator::Quaternion` transcription → OGSA-TS frame conversion) pass
-standalone checks (`Test/smoke.cpp`, 6/6) and were observed end-to-end
-on a real receiver (`ogsa_smoke` → TelemetryReceive). **In-game testing
-pending** (see Testing below).
+Status: **in-game verified (UE4)** — first live session on Stray
+(UE4) walked the cat around a room while a receiver watched the wire;
+that session exposed and fixed a FVector ABI footgun (UE4 floats read
+as UE5 doubles → position 0,0,~1e30). The ABI is now auto-detected at
+runtime (see Install). Standalone checks: `Test/smoke.cpp`, 6/6.
 
 ## What it tracks — the pawn, not the headset
 
@@ -37,7 +36,7 @@ motionHz=60
 objectName=player
 objectType=humanoid    ; humanoid|vehicle|aircraft|watercraft|spacecraft|camera
 gameName=              ; default: the game's exe name
-engine=ue5             ; ue5 (FVector doubles, default) | ue4 (floats)
+engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
 ```
 
 Pair with a receiver, e.g. ogsa-ts-dotnet's
@@ -48,10 +47,12 @@ Pair with a receiver, e.g. ogsa-ts-dotnet's
 - **Standalone (no UEVR)**: `build/Release/ogsa_smoke.exe` — conversion
   assertions + 150 synthetic ticks to the multicast group; exit 0 = pass.
   Run TelemetryReceive beside it to watch `synthetic_pawn` on the wire.
-- **In-game**: inject UEVR into a UE5 game, confirm in the UEVR log
-  (`[ogsa] OGSA-TS telemetry loaded: pawn ...`), watch TelemetryReceive:
-  the pawn should hold continuity through camera cuts and carry motion
-  while the view lags — that's the signal a rig wants.
+- **In-game**: inject UEVR into the game, confirm in the UEVR log
+  (`[ogsa] OGSA-TS telemetry loaded: …` and the follow-up
+  `[ogsa] FVector ABI auto-detected: params size N → UE4|UE5` line),
+  watch TelemetryReceive: the pawn should hold continuity through
+  camera cuts and carry motion while the view lags — that's the signal
+  a rig wants. (Validated this way on Stray/UE4.)
 
 ## Layout
 
