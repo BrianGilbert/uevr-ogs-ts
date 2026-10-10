@@ -1,7 +1,7 @@
 # ogsa-ts-uevr
 
 [UEVR](https://github.com/praydog/UEVR) plugin that publishes
-[OGSA Telemetry Standard (OGSA-TS)](../OGSA-Telemetry-Standard) motion
+[OGSA Telemetry Standard (OGSA-TS)](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard) motion
 telemetry from **any UE4/UE5 game UEVR injects** — zero game
 modification, LAN-only UDP multicast. Motion platforms, haptic hardware,
 and dashboards on the local network can follow the game.
