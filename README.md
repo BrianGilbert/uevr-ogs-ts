@@ -1,10 +1,12 @@
-# ogsa-ts-uevr
+# uevr-ogsa-ts
 
 [UEVR](https://github.com/praydog/UEVR) plugin that publishes
 [OGSA Telemetry Standard (OGSA-TS)](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard) motion
 telemetry from **any UE4/UE5 game UEVR injects** — zero game
 modification, LAN-only UDP multicast. Motion platforms, haptic hardware,
 and dashboards on the local network can follow the game.
+
+Support & discussion: [Discord](https://discord.gg/yyCp5D2Ccp)
 
 Status: **in-game verified (UE4)** — first live session on Stray
 (UE4) walked the cat around a room while a receiver watched the wire;
