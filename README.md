@@ -22,8 +22,11 @@ The pawn is the rigid body whose inertial frame a motion rig reproduces.
 
 ## Install
 
-1. Build (or take from CI artifacts): `cmake -B build && cmake --build
-   build --config Release` → `build/Release/ogsa_telemetry.dll`
+1. Build locally (`cmake -B build && cmake --build build --config
+   Release` → `build/Release/ogsa_telemetry.dll`) or grab a prebuilt
+   DLL from
+   [GitHub Releases](https://github.com/BrianGilbert/uevr-ogsa-ts/releases)
+   — CI publishes a CalVer build (`vYYYY.MM.DD`) on every push to main.
 2. Drop the DLL into your UEVR plugins folder — global
    (`<uevr>/plugins/`) or per-game (`<game>/uevr/plugins/`).
 3. Optional config: `ogsa_telemetry.ini` beside the DLL:

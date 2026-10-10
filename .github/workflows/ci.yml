@@ -1,7 +1,17 @@
 name: ci
 # Windows build of the UEVR plugin DLL + the standalone smoke test
 # (conversion assertions + 150 synthetic ticks; exit-code gated).
-on: [push, pull_request]
+# Pushes to main also publish a CalVer release (vYYYY.MM.DD, UTC) with
+# the DLL + README; a same-day rerun appends the run number
+# (v2026.10.12.N) so tags stay unique. The plugin depends on nothing
+# but UEVR at runtime and ws2_32 at link time — no UE4SS involved.
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
 
 jobs:
   build-and-smoke:
@@ -14,3 +24,51 @@ jobs:
           cmake --build build --config Release
       - name: Run smoke test
         run: build/Release/ogsa_smoke.exe
+      - name: Upload DLL artifact
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        uses: actions/upload-artifact@v4
+        with:
+          name: ogsa_telemetry-dll
+          path: build/Release/ogsa_telemetry.dll
+          if-no-files-found: error
+
+  release:
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    needs: build-and-smoke
+    runs-on: windows-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history + tags for the same-day tag check
+          fetch-tags: true
+      - name: Download DLL artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: ogsa_telemetry-dll
+      - name: CalVer tag
+        id: calver
+        shell: bash
+        run: |
+          base="v$(date -u +%Y.%m.%d)"
+          tag="$base"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            tag="$base.${{ github.run_number }}"
+          fi
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+      - name: Package
+        env:
+          TAG: ${{ steps.calver.outputs.tag }}
+        shell: pwsh
+        run: |
+          $name = "ogsa_telemetry-$($env:TAG.TrimStart('v'))-win64.zip"
+          Compress-Archive -Path ogsa_telemetry.dll, README.md -DestinationPath $name
+          "zip=$name" >> $env:GITHUB_ENV
+      - name: Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.calver.outputs.tag }}
+          name: ${{ steps.calver.outputs.tag }}
+          files: ${{ env.zip }}
+          generate_release_notes: true
