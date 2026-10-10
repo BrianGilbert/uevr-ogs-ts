@@ -64,7 +64,7 @@ jobs:
           TAG: ${{ steps.calver.outputs.tag }}
         shell: pwsh
         run: |
-          $name = "ogsa_telemetry-$($env:TAG.TrimStart('v'))-win64.zip"
+          $name = "uevr_ogsa_telemetry-$($env:TAG.TrimStart('v'))-win64.zip"
           Compress-Archive -Path ogsa_telemetry.dll, README.md -DestinationPath $name
           "zip=$name" >> $env:GITHUB_ENV
       - name: Release
