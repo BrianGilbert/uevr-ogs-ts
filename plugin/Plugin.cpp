@@ -11,7 +11,8 @@
 // Config: ogsa_telemetry.ini beside the DLL (optional):
 //   group=239.255.17.17  port=40123  ttl=1  motionHz=60
 //   objectName=player    objectType=humanoid|vehicle|aircraft|watercraft|spacecraft
-//   gameName=<exe name by default>   engine=auto|ue4|ue5 (FVector ABI)
+//   gameName=<exe name by default, pack/build tokens stripped ("Game-Win64-Shipping"
+//             -> "Game")>   engine=auto|ue4|ue5 (FVector ABI)
 //
 // The FVector/FRotator ABI is auto-detected at runtime (default) by
 // measuring K2_GetActorLocation's UFunction params size: 12 bytes =
@@ -25,6 +26,7 @@
 #include <winsock2.h>
 #include <windows.h>
 #include <cmath>
+#include <cstdarg>
 #include <cstdio>
 #include <fstream>
 #include <string>
@@ -83,12 +85,81 @@ static void DetectEngineAbi(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
                                g_engineIsUE4 ? "UE4 (floats)" : "UE5 (doubles)");
 }
 
+// ---- debug trace (ogsa_telemetry_debug.log beside the DLL) ----
+// UEVR's own log needs its overlay/console; the mod writes its own small
+// trace (rewritten each launch): config as loaded, the first FName
+// resolution, and every label change.
+static void DebugLog(const char* fmt, ...)
+{
+    static FILE* f = nullptr;
+    if (!f)
+    {
+        char path[MAX_PATH]{};
+        GetModuleFileNameA(g_module, path, MAX_PATH);
+        std::string p(path);
+        const auto slash = p.find_last_of("\\/");
+        f = fopen((slash == std::string::npos
+            ? std::string("ogsa_telemetry_debug.log")
+            : p.substr(0, slash + 1) + "ogsa_telemetry_debug.log").c_str(), "w");
+        if (!f) return;
+    }
+    va_list ap; va_start(ap, fmt);
+    vfprintf(f, fmt, ap);
+    va_end(ap);
+    fflush(f);
+}
+
+// Surfaces what we're tracking as the discovery typeLabel: pawn FName ->
+// string -> UTF-8, instance suffix stripped by the publisher
+// ("BP_Foo_C_3" -> "BP_Foo_C"); the object NAME stays "player" (stable —
+// receivers match motion to discovery by it). The buffer is
+// zero-initialized and its CONTENT is the source of truth: the API docs
+// say nothing about to_string's return semantics (length? bool? bytes?),
+// and gating on it never set the label in the field. The resolved string
+// is cached because FName handles may be per-call values.
+static void UpdateTypeLabel(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
+{
+    static std::wstring lastName;
+    static bool loggedApi = false;
+    if (!loggedApi)
+    {
+        loggedApi = true;
+        DebugLog("fname api: uobject=%s fname=%s\n",
+                 sdk->uobject ? "ok" : "NULL",
+                 sdk->fname ? "ok" : "NULL");
+    }
+    if (sdk->uobject == nullptr || sdk->fname == nullptr) return;
+    UEVR_FNameHandle fname = sdk->uobject->get_fname(pawn);
+    if (fname == nullptr) return;
+    wchar_t wname[160]{};
+    const unsigned int ret = sdk->fname->to_string(
+        fname, wname, (unsigned int)(sizeof wname / sizeof wname[0]));
+    const size_t len = wcslen(wname); // zeroed buffer: valid whatever ret means
+    static bool loggedFirst = false;
+    if (!loggedFirst)
+    {
+        loggedFirst = true;
+        DebugLog("first fname: ret=%u len=%llu '%ls'\n",
+                 ret, (unsigned long long)len, wname);
+    }
+    if (len == 0 || lastName == wname) return;
+    lastName = wname;
+    char utf8[640]{};
+    if (WideCharToMultiByte(CP_UTF8, 0, wname, (int)len, utf8, sizeof utf8,
+                            nullptr, nullptr) > 0)
+    {
+        g_publisher.set_type_label(utf8);
+        DebugLog("typeLabel set: '%s'\n", utf8);
+    }
+}
+
 static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
                        ogsa::telemetry::Quat& quat)
 {
     const UEVR_SDKData* sdk = g_api->sdk;
     UEVR_UObjectHandle pawn = sdk->functions->get_local_pawn(0);
     if (pawn == nullptr) return false;
+    UpdateTypeLabel(sdk, pawn);
     if (g_engineIsUE4 < 0)
     {
         DetectEngineAbi(sdk, pawn);
@@ -142,7 +213,21 @@ static std::string DefaultGameName()
     std::string p(path);
     const auto slash = p.find_last_of("\\/");
     const auto dot = p.find_last_of('.');
-    return p.substr(slash + 1, dot - slash - 1);
+    std::string name = p.substr(slash + 1, dot - slash - 1);
+    // "Game-Win64-Shipping" -> "Game": receivers display gameName and key
+    // per-game state on it, so strip the pack/build tokens (INI overrides)
+    for (;;)
+    {
+        const auto dash = name.find_last_of('-');
+        if (dash == std::string::npos) break;
+        const std::string tok = name.substr(dash + 1);
+        const bool known = tok == "Shipping" || tok == "Test"
+                        || tok == "DebugGame" || tok == "Win64"
+                        || tok == "WinGDK" || tok == "Win32";
+        if (!known) break;
+        name.resize(dash);
+    }
+    return name;
 }
 
 static uint16_t ObjectTypeFromName(const std::string& s)
@@ -190,6 +275,8 @@ extern "C" __declspec(dllexport) bool uevr_plugin_initialize(
     ogsa::PublisherConfig cfg;
     cfg.gameName = _strdup(DefaultGameName().c_str());
     LoadConfig(cfg);
+    DebugLog("ogsa_telemetry uevr start: game='%s' object='%s' -> %s:%d\n",
+             cfg.gameName, cfg.objectName, cfg.group, cfg.port);
 
     if (!g_publisher.start(cfg))
     {

@@ -40,12 +40,29 @@ ttl=1
 motionHz=60
 objectName=player
 objectType=humanoid    ; humanoid|vehicle|aircraft|watercraft|spacecraft|camera
-gameName=              ; default: the game's exe name
+gameName=              ; default: the game's exe name, pack/build tokens
+                       ; stripped ("Game-Win64-Shipping" -> "Game")
 engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
 ```
 
+The tracked pawn's class name is surfaced automatically as the object's
+`typeLabel` in discovery (e.g. "BP_PlayerCharacter_C"), re-sent when
+possession changes; `objectName` stays the stable matching key.
+
 Pair with a receiver, e.g. ogsa-ts-dotnet's
 `dotnet run --project src/TelemetryReceive`.
+
+### Via Rai Pal
+
+Rai Pal manages per-game UEVR installs, plugin included:
+
+1. Select the game and click **Install UEVR**.
+2. Click the three-dots indicator to the right of **Uninstall** and pick
+   **Open Mod Folder**.
+3. In the folder that opens, create a `plugins` directory and drop
+   `ogsa_telemetry.dll` into it (`plugins\ogsa_telemetry.dll`).
+4. Click **Run** and load the game — telemetry starts with the first
+   pawn, no INI required.
 
 ## Testing
 

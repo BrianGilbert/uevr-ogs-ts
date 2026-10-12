@@ -8,6 +8,25 @@ namespace ogsa {
 
 using namespace telemetry;
 
+std::string StripInstanceSuffix(const std::string& name)
+{
+    const auto us = name.find_last_of('_');
+    if (us == std::string::npos || us + 1 == name.size()) return name;
+    if (name.find_first_not_of("0123456789", us + 1) != std::string::npos)
+        return name; // last segment not purely numeric — not an instance no.
+    return name.substr(0, us);
+}
+
+void Publisher::set_type_label(const char* label)
+{
+    std::string s = StripInstanceSuffix(label ? label : "");
+    if (s != typeLabel_)
+    {
+        typeLabel_ = std::move(s);
+        lastDiscovery_ = -1e18; // force discovery re-send on the next tick
+    }
+}
+
 bool Publisher::start(const PublisherConfig& config)
 {
     cfg_ = config;
@@ -62,6 +81,7 @@ void Publisher::sendDiscovery()
     obj.Name = cfg_.objectName;
     obj.Location = "local";
     obj.Type = cfg_.objectType;
+    obj.TypeLabel = typeLabel_;
     obj.Primary = true;
     BuildDiscovery(wire_, 1, sessionUs_, cfg_.gameName, Environment{}, { obj });
     send(FrameType::Discovery, wire_.Wrap(FrameType::Discovery));

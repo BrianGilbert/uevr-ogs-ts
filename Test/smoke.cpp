@@ -66,6 +66,18 @@ int main()
               std::abs(n - 1.0) < 1e-6);
     }
 
+    // ---- typeLabel: UE instance-suffix stripping ----
+    {
+        Check("instance suffix stripped",
+              ogsa::StripInstanceSuffix("BP_PlayerCharacter_C_3")
+                  == "BP_PlayerCharacter_C");
+        Check("multi-digit instance suffix stripped",
+              ogsa::StripInstanceSuffix("Sportscar_12") == "Sportscar");
+        Check("non-numeric suffix kept",
+              ogsa::StripInstanceSuffix("Wing_2L") == "Wing_2L");
+        Check("no suffix kept", ogsa::StripInstanceSuffix("Pawn") == "Pawn");
+    }
+
     // ---- wire path: publish 150 synthetic ticks (2.5 s at 60 Hz) ----
     // A pawn circling at 10 m with a yaw sweep — receivers on the LAN
     // (ogsa-ts-dotnet TelemetryReceive) should see discovery + motion.
@@ -82,10 +94,12 @@ int main()
         Vec3 pos{ (float)(1000.0 * std::cos(yaw * 3.14159265 / 180.0)),
                   0.0f,
                   (float)(1000.0 * std::sin(yaw * 3.14159265 / 180.0)) };
+        if (i == 75) pub.set_type_label("BP_SyntheticPawn_C_7"); // mid-stream swap
         pub.tick(dt, true, pos, RotatorToQuat(0, yaw, 0));
     }
     pub.stop();
-    Check("150 ticks published (discovery + motion sent)", true);
+    Check("150 ticks published (discovery + motion sent, typeLabel "
+          "swapped at tick 75)", true);
 
     std::printf("smoke: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
