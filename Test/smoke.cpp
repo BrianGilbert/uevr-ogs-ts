@@ -81,25 +81,65 @@ int main()
     // ---- wire path: publish 150 synthetic ticks (2.5 s at 60 Hz) ----
     // A pawn circling at 10 m with a yaw sweep — receivers on the LAN
     // (ogsa-ts-dotnet TelemetryReceive) should see discovery + motion.
+    // Engine velocity is fed analytically (tangential), exercising the
+    // GetVelocity plumbing, and the derived body dynamics are asserted:
+    // yaw rate ≈ 90°/s, heave ≈ +1 g (accelerometer-style), horizontal
+    // specific force ≈ centripetal ω²r.
     ogsa::Publisher pub;
     ogsa::PublisherConfig cfg;
     cfg.gameName = "ogsa_smoke";
     cfg.objectName = "synthetic_pawn";
     if (!pub.start(cfg)) { std::printf("FAIL socket start\n"); return 1; }
     const double dt = 1.0 / 60.0;
+    const double yawRate = 90.0;                    // deg/s
+    const double w = yawRate * 3.14159265 / 180.0;  // rad/s
+    const double r = 10.0;                          // metres
     for (int i = 0; i < 150; i++)
     {
         const double t = i * dt;
-        const double yaw = t * 90.0; // deg/s
-        Vec3 pos{ (float)(1000.0 * std::cos(yaw * 3.14159265 / 180.0)),
-                  0.0f,
-                  (float)(1000.0 * std::sin(yaw * 3.14159265 / 180.0)) };
+        const double yaw = t * yawRate;
+        const double yr = yaw * 3.14159265 / 180.0;
+        // horizontal circle in UE's ground plane (X-Y, Z-up const),
+        // nose tangential: heading = position angle + 90°, turning
+        // nose-right at yawRate — centripetal ω²r points +sway in the
+        // body frame the whole time
+        Vec3 pos{ (float)(1000.0 * std::cos(yr)),
+                  (float)(1000.0 * std::sin(yr)), 0.0f };
+        Vec3 vel{ (float)(-1000.0 * w * std::sin(yr)),
+                  (float)(1000.0 * w * std::cos(yr)), 0.0f };
         if (i == 75) pub.set_type_label("BP_SyntheticPawn_C_7"); // mid-stream swap
-        pub.tick(dt, true, pos, RotatorToQuat(0, yaw, 0));
+        pub.tick(dt, true, pos, RotatorToQuat(0, yaw + 90.0, 0), true, vel);
     }
     pub.stop();
     Check("150 ticks published (discovery + motion sent, typeLabel "
           "swapped at tick 75)", true);
+
+    // ---- derived body dynamics (circling pawn, engine velocity fed) ----
+    {
+        const float g = ogsa::telemetry::BodyDynamicsDeriver::Gravity;
+        const Vec3& av = pub.last_angular_velocity();
+        const Vec3& sf = pub.last_specific_force();
+        std::printf("dynamics: av=(%.4f, %.4f, %.4f) sf=(%.4f, %.4f, %.4f) "
+                    "[expect av.y=%.4f, sf.y=%.4f, horiz=%.4f]\n",
+                    av.X, av.Y, av.Z, sf.X, sf.Y, sf.Z,
+                    (float)w, g, (float)(w * w * r));
+        Check("dynamics: yaw rate ≈ 90°/s nose-right (+y, C-4)",
+              std::abs(av.Y - w) < 0.05 && std::abs(av.X) < 0.01 &&
+              std::abs(av.Z) < 0.01);
+        Check("dynamics: heave ≈ +1 g (accelerometer-style)",
+              std::abs(sf.Y - g) < 0.2);
+        // constant nose-right turn: centripetal rides +sway (body x).
+        // Surge leakage is bounded by the accel low-pass phase lag on
+        // the co-rotating centripetal vector (atan(ωτ) ≈ 9° at this
+        // 90°/s turn) plus the backward-difference half-tick skew — not
+        // an error, a documented property of filtering before cueing.
+        Check("dynamics: centripetal ω²r on +sway (C-4 right-turn)",
+              std::abs(sf.X - (float)(w * w * r)) < 1.5 &&
+              std::abs(sf.Z) < (float)(w * w * r) * 0.25f);
+        const float horiz = std::sqrt(sf.X * sf.X + sf.Z * sf.Z);
+        Check("dynamics: horizontal specific force ≈ centripetal ω²r",
+              std::abs(horiz - (float)(w * w * r)) < 1.5);
+    }
 
     std::printf("smoke: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;

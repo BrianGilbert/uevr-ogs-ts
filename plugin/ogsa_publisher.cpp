@@ -59,7 +59,8 @@ void Publisher::stop()
 }
 
 void Publisher::tick(double dt, bool hasPose,
-                     const Vec3& posCm, const Quat& quat)
+                     const Vec3& posCm, const Quat& quat,
+                     bool hasVel, const Vec3& velCm)
 {
     clock_ += dt;
     if (clock_ - lastDiscovery_ >= cfg_.discoverySeconds)
@@ -67,11 +68,31 @@ void Publisher::tick(double dt, bool hasPose,
         sendDiscovery();
         lastDiscovery_ = clock_;
     }
-    if (hasPose && clock_ - lastMotion_ >= 1.0 / cfg_.motionHz)
+    if (hasPose)
     {
-        sendMotion(posCm, quat);
-        lastMotion_ = clock_;
+        // derive dynamics in the standard frame, metres — every tick with
+        // a pose, not just at publish cadence, so derivative denominators
+        // stay small (UE world cm -> standard m)
+        Vec3 std = ToStandard(posCm);
+        std.X /= 100.0f; std.Y /= 100.0f; std.Z /= 100.0f;
+        Vec3 vel = ToStandard(velCm);
+        vel.X /= 100.0f; vel.Y /= 100.0f; vel.Z /= 100.0f;
+        Quat stdQ = ToStandard(quat);
+        deriver_.Sample(dt, std, stdQ, hasVel, vel);
+        if (clock_ - lastMotion_ >= 1.0 / cfg_.motionHz)
+        {
+            sendMotion(std, stdQ);
+            lastMotion_ = clock_;
+        }
     }
+    else if (hadPose_)
+    {
+        // pawn loss: the next pose must start fresh — scene changes can
+        // land the new pawn near the old world position, which the
+        // teleport detector alone would not catch
+        deriver_ = telemetry::BodyDynamicsDeriver{};
+    }
+    hadPose_ = hasPose;
 }
 
 void Publisher::sendDiscovery()
@@ -83,21 +104,26 @@ void Publisher::sendDiscovery()
     obj.Type = cfg_.objectType;
     obj.TypeLabel = typeLabel_;
     obj.Primary = true;
-    BuildDiscovery(wire_, 1, sessionUs_, cfg_.gameName, Environment{}, { obj });
+    Environment env{};
+    // declare the gravity the derivation actually uses, so consumers
+    // scaling tilt cues (deg/g) divide by the sender's real value
+    env.Gravity = BodyDynamicsDeriver::Gravity;
+    BuildDiscovery(wire_, 1, sessionUs_, cfg_.gameName, env, { obj });
     send(FrameType::Discovery, wire_.Wrap(FrameType::Discovery));
 }
 
-void Publisher::sendMotion(const Vec3& posCm, const Quat& quat)
+void Publisher::sendMotion(const Vec3& posStdM, const Quat& stdQ)
 {
-    // UE world (cm, X-fwd Y-right Z-up) -> standard (m, Z-fwd X-right Y-up)
-    Vec3 std = ToStandard(posCm);
-    std.X /= 100.0f; std.Y /= 100.0f; std.Z /= 100.0f;
-    Quat stdQ = ToStandard(quat);
-
     MotionObjectInput o;
     o.Name = cfg_.objectName;
-    o.Position = std;
+    o.Position = posStdM; // already standard frame, metres
     o.Orientation = stdQ;
+    if (cfg_.sendDynamics)
+    {
+        o.HasBodyDynamics = true;
+        o.SpecificForce = deriver_.SpecificForce;
+        o.AngularVelocity = deriver_.AngularVelocity;
+    }
     wire_.W.clear();
     BuildMotion(wire_, clock_, { o });
     send(FrameType::Motion, wire_.Wrap(FrameType::Motion));

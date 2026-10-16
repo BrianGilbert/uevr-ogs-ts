@@ -11,6 +11,9 @@
 // Config: ogsa_telemetry.ini beside the DLL (optional):
 //   group=239.255.17.17  port=40123  ttl=1  motionHz=60
 //   objectName=player    objectType=humanoid|vehicle|aircraft|watercraft|spacecraft
+//   dynamics=on|off (default on: motion frames carry the bodyDynamics
+//                    variant — specific force + angular rates derived
+//                    from the pawn pose and the engine-measured velocity)
 //   gameName=<exe name by default, pack/build tokens stripped ("Game-Win64-Shipping"
 //             -> "Game")>   engine=auto|ue4|ue5 (FVector ABI)
 //
@@ -154,7 +157,8 @@ static void UpdateTypeLabel(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
 }
 
 static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
-                       ogsa::telemetry::Quat& quat)
+                       ogsa::telemetry::Quat& quat,
+                       ogsa::telemetry::Vec3& velCm)
 {
     const UEVR_SDKData* sdk = g_api->sdk;
     UEVR_UObjectHandle pawn = sdk->functions->get_local_pawn(0);
@@ -168,20 +172,27 @@ static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
 
     if (g_engineIsUE4)
     {
-        FVectorUE4 loc{};
+        FVectorUE4 loc{}, vel{};
         FRotatorUE4 rot{};
         sdk->uobject->call_function(pawn, L"K2_GetActorLocation", &loc);
         sdk->uobject->call_function(pawn, L"K2_GetActorRotation", &rot);
+        // AActor::GetVelocity (BlueprintPure): movement-component velocity
+        // in cm/s — engine-measured, one differentiation better than
+        // deriving it from position deltas
+        sdk->uobject->call_function(pawn, L"GetVelocity", &vel);
         posCm = { loc.X, loc.Y, loc.Z };
+        velCm = { vel.X, vel.Y, vel.Z };
         quat = RotatorToQuat(rot.Pitch, rot.Yaw, rot.Roll);
     }
     else
     {
-        FVectorUE5 loc{};
+        FVectorUE5 loc{}, vel{};
         FRotatorUE5 rot{};
         sdk->uobject->call_function(pawn, L"K2_GetActorLocation", &loc);
         sdk->uobject->call_function(pawn, L"K2_GetActorRotation", &rot);
+        sdk->uobject->call_function(pawn, L"GetVelocity", &vel);
         posCm = { (float)loc.X, (float)loc.Y, (float)loc.Z };
+        velCm = { (float)vel.X, (float)vel.Y, (float)vel.Z };
         quat = RotatorToQuat(rot.Pitch, rot.Yaw, rot.Roll);
     }
     return true;
@@ -189,10 +200,10 @@ static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
 
 static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
 {
-    ogsa::telemetry::Vec3 pos;
+    ogsa::telemetry::Vec3 pos, vel;
     ogsa::telemetry::Quat quat;
-    const bool hasPose = SamplePawn(pos, quat);
-    g_publisher.tick((double)deltaSeconds, hasPose, pos, quat);
+    const bool hasPose = SamplePawn(pos, quat, vel);
+    g_publisher.tick((double)deltaSeconds, hasPose, pos, quat, hasPose, vel);
 }
 
 // ---- config ----
@@ -257,6 +268,8 @@ static void LoadConfig(ogsa::PublisherConfig& cfg)
         else if (key == "objectName") cfg.objectName = _strdup(val.c_str());
         else if (key == "objectType") cfg.objectType = ObjectTypeFromName(val);
         else if (key == "gameName") cfg.gameName = _strdup(val.c_str());
+        else if (key == "dynamics")
+            cfg.sendDynamics = (val != "off" && val != "0");
         else if (key == "engine")
         {
             if (val == "ue4") g_engineIsUE4 = 1;
@@ -286,12 +299,14 @@ extern "C" __declspec(dllexport) bool uevr_plugin_initialize(
     }
     param->sdk->callbacks->on_post_engine_tick(OnEngineTick);
     param->functions->log_info("[ogsa] OGSA-TS telemetry loaded: pawn '%s' "
-                               "from '%s' -> %s:%d (engine ABI: %s)",
+                               "from '%s' -> %s:%d (engine ABI: %s, "
+                               "dynamics: %s)",
                                cfg.objectName, cfg.gameName, cfg.group,
                                cfg.port,
                                g_engineIsUE4 == 1 ? "ue4 (forced)"
                                : g_engineIsUE4 == 0 ? "ue5 (forced)"
-                               : "auto-detect on first pawn");
+                               : "auto-detect on first pawn",
+                               cfg.sendDynamics ? "on" : "off");
     return true;
 }
 

@@ -4,7 +4,10 @@
 [OGSA Telemetry Standard (OGSA-TS)](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard) motion
 telemetry from **any UE4/UE5 game UEVR injects** — zero game
 modification, LAN-only UDP multicast. Motion platforms, haptic hardware,
-and dashboards on the local network can follow the game.
+and dashboards on the local network can follow the game. Motion frames
+carry pose **plus body dynamics** (specific force + angular rates — the
+direct motion-cueing inputs, derived from the pawn and the engine-measured
+velocity).
 
 Support & discussion: [Discord](https://discord.gg/yyCp5D2Ccp)
 
@@ -12,7 +15,8 @@ Status: **in-game verified (UE4)** — first live session on Stray
 (UE4) walked the cat around a room while a receiver watched the wire;
 that session exposed and fixed a FVector ABI footgun (UE4 floats read
 as UE5 doubles → position 0,0,~1e30). The ABI is now auto-detected at
-runtime (see Install). Standalone checks: `Test/smoke.cpp`, 6/6.
+runtime (see Install). Standalone checks: `Test/smoke.cpp`, 14/14
+(wire + derived-dynamics assertions).
 
 ## What it tracks — the pawn, not the headset
 
@@ -40,6 +44,7 @@ ttl=1
 motionHz=60
 objectName=player
 objectType=humanoid    ; humanoid|vehicle|aircraft|watercraft|spacecraft|camera
+dynamics=on            ; on (default) | off — bodyDynamics variant in motion frames
 gameName=              ; default: the game's exe name, pack/build tokens
                        ; stripped ("Game-Win64-Shipping" -> "Game")
 engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
@@ -48,6 +53,28 @@ engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
 The tracked pawn's class name is surfaced automatically as the object's
 `typeLabel` in discovery (e.g. "BP_PlayerCharacter_C"), re-sent when
 possession changes; `objectName` stays the stable matching key.
+
+## Body dynamics on the wire
+
+Every motion frame carries the schema's `bodyDynamics` union variant —
+the two quantities motion cueing is built around, derived per engine
+tick from the sampled pose and the pawn's engine-measured velocity
+(`AActor::GetVelocity`):
+
+- **specific force** (m/s²), accelerometer-style: `f = a − g`, reading
+  +1 g on the up axis at rest (what an IMU reads), rotated into the
+  body frame — the direct input of tilt coordination.
+- **angular velocity** (rad/s), body frame in the C-4 component sense
+  (+x nose-up, +y nose-right, +z right-side-down) — the direct input
+  of onset cueing, derived from quaternion deltas (no Euler
+  representation-flip artifacts).
+
+Derivation details: velocity comes from the engine when it has one
+(else position deltas), acceleration is low-pass filtered (τ = 0.1 s),
+and teleports (> 2.5 m per tick) reset the estimator instead of
+spiking. Receivers with native accelerometer-class sources get that
+bound directly instead; senders that derive still beat receiver-side
+Euler differentiation (GameConn `docs/cueing.md`).
 
 Pair with a receiver, e.g. ogsa-ts-dotnet's
 `dotnet run --project src/TelemetryReceive`.

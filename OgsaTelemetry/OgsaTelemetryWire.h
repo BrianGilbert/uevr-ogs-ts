@@ -145,6 +145,11 @@ struct MotionObjectInput
 {
     std::string Name;
     Vec3 Position; Quat Orientation;
+    Vec3 SpecificForce;   // m/s², accelerometer-style: f = a − g (+heave
+                          // gravity reaction at rest); body frame, C-4 axes
+    Vec3 AngularVelocity; // rad/s, body frame, C-4 axes (+x nose-up,
+                          // +y nose-right, +z right-side-down)
+    bool HasBodyDynamics = false;
     std::vector<ChannelValueInput> Channels;
     uint32_t PositionPad = 0; // corpus quirk: motion-pose carries ffffffff
 };
@@ -262,7 +267,25 @@ inline void BuildMotion(WireBuilder& b, double timestamp,
     {
         const MotionObjectInput& o = objects[i];
         int e = tag + 1 + i * 7;
-        b.SetU16(e, 0, 0xFFFF); // dynamics union unset
+        if (o.HasBodyDynamics)
+        {
+            // union discriminant 2 = bodyDynamics; allocation order
+            // mirrors the reference stack exactly (locked by the corpus
+            // motion-bodydynamics vector): specificForce words, then the
+            // 0-data/2-ptr BodyDynamics struct (ptr0 points BACKWARD to
+            // specificForce), then angularVelocity, then name/pos/quat
+            int sfAt = b.Vec3Word(o.SpecificForce, 0xFFFFFFFFu);
+            int bdAt = b.Alloc(2);
+            int avAt = b.Vec3Word(o.AngularVelocity, 0);
+            b.W[bdAt] = WireBuilder::StructPtr(bdAt, sfAt, 2, 0);
+            b.W[bdAt + 1] = WireBuilder::StructPtr(bdAt + 1, avAt, 2, 0);
+            b.SetU16(e, 0, 2); // dynamics union: bodyDynamics
+            b.W[e + 4] = WireBuilder::StructPtr(e + 4, bdAt, 0, 2);
+        }
+        else
+        {
+            b.SetU16(e, 0, 0xFFFF); // dynamics union unset
+        }
         int nameAt = b.Text(o.Name);
         b.W[e + 1] = WireBuilder::TextPtr(e + 1, nameAt, WireBuilder::TextBytes(o.Name));
         int posAt = b.Vec3Word(o.Position, o.PositionPad);

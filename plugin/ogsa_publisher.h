@@ -6,6 +6,15 @@
 // is UE world space (cm, LH X-fwd Y-right Z-up); conversion to the OGSA-TS
 // frame happens here via ToStandard. Shared with Test/smoke.cpp so the
 // wire path is testable without UEVR.
+//
+// Body dynamics: motion frames carry the bodyDynamics union variant
+// (specific force + angular velocity — the direct motion-cueing inputs,
+// GameConn docs/cueing.md), derived per engine tick by the core's
+// BodyDynamicsDeriver from the sampled pose plus the engine-measured
+// velocity when the caller has one (UEVR GetVelocity). Senders with
+// native accelerometer-class data would bind that instead; injected
+// senders derive, which still beats receiver-side Euler differentiation
+// (no representation-flip artifacts). Disable via config (dynamics=off).
 #pragma once
 #include <winsock2.h>
 #include <ws2tcpip.h>
@@ -27,6 +36,7 @@ struct PublisherConfig
     const char* gameName = "unknown";
     const char* objectName = "player";
     uint16_t objectType = 4; // ObjectType::humanoid (capnp); INI-overridable
+    bool sendDynamics = true; // emit the bodyDynamics union variant
 };
 
 class Publisher
@@ -48,14 +58,25 @@ public:
 
     /// Advances the clock by dt seconds and, if a pose is available,
     /// publishes at the configured cadence. posCm is UE world centimetres;
-    /// quat is UE world orientation (x,y,z,w).
+    /// quat is UE world orientation (x,y,z,w). velCm (UE world cm/s) is
+    /// the engine-measured velocity when the caller has one — the pawn's
+    /// movement component reading beats differentiating position; without
+    /// it the deriver falls back to position deltas. Derivation runs on
+    /// EVERY tick with a pose, not just at publish cadence.
     void tick(double dt, bool hasPose,
-              const telemetry::Vec3& posCm, const telemetry::Quat& quat);
+              const telemetry::Vec3& posCm, const telemetry::Quat& quat,
+              bool hasVel = false, const telemetry::Vec3& velCm = {});
+
+    /// Last derived specific force (m/s², C-4 body frame, accelerometer-
+    /// style: +9.80665 heave at rest) — diagnostics/smoke-test access.
+    const telemetry::Vec3& last_specific_force() const { return deriver_.SpecificForce; }
+    /// Last derived angular velocity (rad/s, C-4 body frame).
+    const telemetry::Vec3& last_angular_velocity() const { return deriver_.AngularVelocity; }
 
 private:
     static constexpr UINT_PTR INVALID_SOCKET_VALUE = (UINT_PTR)~0;
     void sendDiscovery();
-    void sendMotion(const telemetry::Vec3& posCm, const telemetry::Quat& quat);
+    void sendMotion(const telemetry::Vec3& posStdM, const telemetry::Quat& stdQ);
     void send(const telemetry::FrameType type, const std::vector<uint8_t>& datagram)
     {
         if (socket_ != INVALID_SOCKET_VALUE && !datagram.empty())
@@ -67,6 +88,8 @@ private:
     SOCKET socket_ = INVALID_SOCKET;
     struct sockaddr_in dst_ {};
     telemetry::WireBuilder wire_;
+    telemetry::BodyDynamicsDeriver deriver_;
+    bool hadPose_ = false;
     PublisherConfig cfg_;
     std::string typeLabel_;
     double clock_ = 0.0, lastDiscovery_ = -1e18, lastMotion_ = -1e18;
