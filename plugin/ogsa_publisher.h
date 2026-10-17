@@ -35,7 +35,7 @@ struct PublisherConfig
     double discoverySeconds = 2.0;
     const char* gameName = "unknown";
     const char* objectName = "player";
-    uint16_t objectType = 4; // ObjectType::humanoid (capnp); INI-overridable
+    uint16_t objectType = 5; // ObjectType::humanoid (capnp); INI-overridable
     bool sendDynamics = true; // emit the bodyDynamics union variant
 };
 

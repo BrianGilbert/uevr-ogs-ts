@@ -157,7 +157,11 @@ struct MotionObjectInput
 struct ObjectDecl
 {
     std::string Name, Location, TypeLabel, RefPointName = "origin";
-    uint16_t Type = 0; bool Primary = true;
+    uint16_t Type = 1; bool Primary = true; // ObjectType ordinal; other
+                         // holds 0 so the catch-all never interleaves with
+                         // real classes: 0 other, 1 vehicle, 2 aircraft,
+                         // 3 watercraft, 4 spacecraft, 5 humanoid, 6 camera,
+                         // 7 creature
     std::vector<ChannelDecl> Channels;
 };
 
@@ -172,7 +176,11 @@ struct EventInput
 struct Environment
 {
     float AirDensity = 1.25f, Temperature = 20, Pressure = 1, Gravity = 9.5f;
-    uint16_t Medium = 1; // asphalt
+    uint16_t Medium = 2; // ContactMedium ordinal; other holds 0 so the
+                         // catch-all never interleaves with real mediums:
+                         // 0 other, 1 air, 2 asphalt, 3 dirt, 4 grass,
+                         // 5 gravel, 6 rumbleStrip, 7 water, 8 snow,
+                         // 9 ice, 10 vacuum
 };
 
 // ---- frame builders (allocation order matches the reference stack) ----

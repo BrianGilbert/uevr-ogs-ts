@@ -243,12 +243,18 @@ static std::string DefaultGameName()
 
 static uint16_t ObjectTypeFromName(const std::string& s)
 {
-    if (s == "vehicle") return 0;
-    if (s == "aircraft") return 1;
-    if (s == "watercraft") return 2;
-    if (s == "spacecraft") return 3;
-    if (s == "camera") return 5;
-    return 4; // humanoid
+    // ObjectType ordinals since corpus v3: `other` holds 0 so the
+    // catch-all never interleaves with real classes — 0 other, 1 vehicle,
+    // 2 aircraft, 3 watercraft, 4 spacecraft, 5 humanoid, 6 camera,
+    // 7 creature
+    if (s == "vehicle") return 1;
+    if (s == "aircraft") return 2;
+    if (s == "watercraft") return 3;
+    if (s == "spacecraft") return 4;
+    if (s == "creature") return 7;
+    if (s == "other") return 0;
+    if (s == "camera") return 6;
+    return 5; // humanoid
 }
 
 static void LoadConfig(ogsa::PublisherConfig& cfg)
