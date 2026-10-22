@@ -41,6 +41,15 @@ static std::vector<uint8_t> HexToBytes(const std::filesystem::path& p)
     return bytes;
 }
 
+// the corpus's discovery environment (manifest inputs), not the defaults
+static Environment CorpusEnvironment()
+{
+    Environment e;
+    e.AirDensity = 1.25f; e.Temperature = 20; e.Pressure = 1; e.Gravity = 9.5f;
+    e.Medium = 2; // asphalt
+    return e;
+}
+
 static void CheckVector(const std::filesystem::path& dir, const char* id,
                         FrameType type, const std::vector<uint8_t>& built)
 {
@@ -65,7 +74,7 @@ int main(int argc, char** argv)
     { // discovery-minimal
         ObjectDecl obj; obj.Name = "obj"; obj.RefPointName = "";
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
-                       Environment{}, { obj });
+                       CorpusEnvironment(), { obj });
         CheckVector(corpus, "discovery-minimal", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }
@@ -78,7 +87,7 @@ int main(int argc, char** argv)
             { "lights.headlights", "", "", 0, 0, false },
         };
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
-                       Environment{}, { obj });
+                       CorpusEnvironment(), { obj });
         CheckVector(corpus, "discovery-channels", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }

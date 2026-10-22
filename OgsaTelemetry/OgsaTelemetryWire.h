@@ -98,7 +98,8 @@ struct EventInput
 
 struct Environment
 {
-    float AirDensity = 1.25f, Temperature = 20, Pressure = 1, Gravity = 9.5f;
+    // standard atmosphere in the schema's SI units (kg/m^3, degC, Pa, m/s^2)
+    float AirDensity = 1.225f, Temperature = 20, Pressure = 101325, Gravity = 9.81f;
     uint16_t Medium = 2; // ContactMedium ordinal; other holds 0 so the
                          // catch-all never interleaves with real mediums:
                          // 0 other, 1 air, 2 asphalt, 3 dirt, 4 grass,
