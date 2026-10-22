@@ -77,10 +77,17 @@ inline Vec3 Rotate(const Quat& q, const Vec3& v)
 // Velocity may be supplied by the caller when the engine measures it
 // (UEVR GetVelocity); otherwise it is derived from position deltas.
 // Acceleration is low-pass filtered (τ = 0.1 s) to tame sampling jitter;
-// angular velocity is NOT filtered (onset cues need its edges).
-// Teleports (> 2.5 m per sample) reset the estimator instead of spiking;
-// after a reset the outputs are the exact static values (gravity
-// reaction in the body frame, zero rates).
+// angular velocity is NOT filtered (onset cues need its edges). Teleports
+// are detected as moves the best available velocity estimate cannot
+// explain (engine-measured velocity when supplied, else the previously
+// derived one) — NOT by a fixed per-sample displacement cap, which
+// conflated "teleport" with "fast mover": flight and space sims routinely
+// exceed 2.5 m per 20 ms sample (125 m/s) in perfectly normal flight,
+// which reset the estimator every tick. Without a velocity measurement a
+// single inconsistent sample is acceleration onset (or the first sample
+// after a reset), so only a sustained inconsistency is treated as a
+// teleport. The first sample after a reset yields the exact static value:
+// gravity reaction rotated into the body frame, zero rates.
 struct BodyDynamicsDeriver
 {
     static constexpr float Gravity = 9.80665f;       // m/s²
@@ -101,16 +108,44 @@ struct BodyDynamicsDeriver
             Reset(position, orientation);
             return;
         }
-        const Vec3 delta = Sub(position, prevPosition_);
-        if (Len(delta) > TeleportThresholdMetres)
+
+        const Vec3 displacement = Sub(position, prevPosition_);
+        Vec3 velocity;
+        if (hasVelocity)
         {
-            Reset(position, orientation);
-            return;
+            // engine-measured velocity is authoritative: a move it cannot
+            // explain (respawn, level change, floating-origin shift) is a
+            // teleport, however fast the ship legitimately flies
+            velocity = engineVelocity;
+            const float expected = (float)dt * Len(engineVelocity);
+            const float inconsistency =
+                Len(Sub(displacement, Scale(engineVelocity, (float)dt)));
+            if (inconsistency > TeleportThresholdMetres + 0.5f * expected)
+            {
+                Reset(position, orientation);
+                return;
+            }
+        }
+        else
+        {
+            velocity = Scale(displacement, (float)(1.0 / dt));
+            const Vec3 expected = Scale(prevVelocity_, (float)dt);
+            const float inconsistency = Len(Sub(displacement, expected));
+            if (inconsistency > TeleportThresholdMetres + 0.5f * Len(expected))
+            {
+                // without a velocity measurement one inconsistent sample is
+                // acceleration onset (or the first sample after a reset);
+                // a sustained one is a teleport
+                if (pendingTeleport_)
+                {
+                    Reset(position, orientation);
+                    return;
+                }
+                pendingTeleport_ = true;
+            }
+            else pendingTeleport_ = false;
         }
 
-        const Vec3 velocity = hasVelocity
-            ? engineVelocity
-            : Scale(delta, (float)(1.0 / dt));
         const Vec3 accel = Scale(Sub(velocity, prevVelocity_), (float)(1.0 / dt));
         // one-pole low-pass: y += (x − y)·dt/τ, stable for any dt
         const double blend = dt / AccelFilterTau < 1.0 ? dt / AccelFilterTau : 1.0;
@@ -137,6 +172,7 @@ struct BodyDynamicsDeriver
         prevOrientation_ = orientation;
         filteredAccel_ = Vec3{};
         hasHistory_ = true;
+        pendingTeleport_ = false;
     }
 
     /// Body-frame angular velocity (rad/s, C-4 component sense) from the
@@ -178,6 +214,7 @@ private:
     Vec3 prevPosition_{}, prevVelocity_{}, filteredAccel_{};
     Quat prevOrientation_{};
     bool hasHistory_ = false;
+    bool pendingTeleport_ = false; // no-velocity path: one strike is accel onset, two is a teleport
 };
 
 } // namespace ogsa::telemetry

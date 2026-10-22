@@ -108,6 +108,6 @@ Rai Pal manages per-game UEVR installs, plugin included:
 | Path | Contents |
 |---|---|
 | `plugin/` | UEVR glue (pawn sampling, K2 calls, config) + engine-agnostic `ogsa_publisher` |
-| `OgsaTelemetry/` | vendored corpus-locked serializer from ogsa-ts-unreal (`sync-core.ps1`) |
+| `OgsaTelemetry/` | vendored canonical-encoding serializer from ogsa-ts-unreal (`sync-core.ps1`), corpus-locked |
 | `vendor/uevr/API.h` | UEVR plugin C API (MIT, praydog; pinned @4ee5c6b) |
 | `Test/smoke.cpp` | standalone wire-path + math verification |

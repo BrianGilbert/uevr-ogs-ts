@@ -1,5 +1,5 @@
-# sync-core.ps1 — vendor the corpus-locked serializer from ogsa-ts-unreal.
-# The two headers are the same files ogsa-ts-unreal proves against the
+# sync-core.ps1 — vendor the canonical serializer from ogsa-ts-unreal.
+# The headers are the same files ogsa-ts-unreal proves against the
 # standard's conformance corpus (its Test/ binary). Run from repo root.
 $ErrorActionPreference = 'Stop'
 
@@ -11,7 +11,8 @@ if (-not (Test-Path "$src/OgsaTelemetryWire.h")) {
 }
 
 $changed = 0
-foreach ($f in @("OgsaTelemetryWire.h", "OgsaTelemetryFrame.h")) {
+foreach ($f in @("OgsaTelemetryCanonical.h", "OgsaTelemetrySchema.h",
+                 "OgsaTelemetryWire.h", "OgsaTelemetryFrame.h")) {
     if (-not (Test-Path "$dst/$f") -or
         (Get-FileHash "$src/$f").Hash -ne (Get-FileHash "$dst/$f").Hash) {
         Copy-Item "$src/$f" "$dst/$f"
