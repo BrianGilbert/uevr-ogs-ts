@@ -11,12 +11,20 @@ velocity).
 
 Support & discussion: [Discord](https://discord.gg/yyCp5D2Ccp)
 
-Status: **in-game verified (UE4)** — first live session on Stray
+Status: **in-game verified (UE4 and UE5)** — first live session on Stray
 (UE4) walked the cat around a room while a receiver watched the wire;
 that session exposed and fixed a FVector ABI footgun (UE4 floats read
 as UE5 doubles → position 0,0,~1e30). The ABI is now auto-detected at
 runtime (see Install). Standalone checks: `Test/smoke.cpp`, 16/16
 (wire + derived-dynamics + pause assertions).
+
+Validated in-game with this mod:
+
+| Game | Engine |
+|---|---|
+| The Gunk | UE 4.26 |
+| Stray | UE 4.27 |
+| RoboCop: Rogue City | UE 5.2 |
 
 ## What it tracks — the pawn, not the headset
 
@@ -102,7 +110,8 @@ Rai Pal manages per-game UEVR installs, plugin included:
   `[ogsa] FVector ABI auto-detected: params size N → UE4|UE5` line),
   watch TelemetryReceive: the pawn should hold continuity through
   camera cuts and carry motion while the view lags — that's the signal
-  a rig wants. (Validated this way on Stray/UE4.)
+  a rig wants. (Validated this way on The Gunk, Stray and RoboCop:
+  Rogue City.)
 
 ## Layout
 
