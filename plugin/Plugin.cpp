@@ -14,6 +14,8 @@
 //   dynamics=on|off (default on: motion frames carry the bodyDynamics
 //                    variant — specific force + angular rates derived
 //                    from the pawn pose and the engine-measured velocity)
+//   pause=on|off    (default on: report the game's pause state on
+//                    session.paused, standard CONVENTIONS C-11)
 //   gameName=<exe name by default, pack/build tokens stripped ("Game-Win64-Shipping"
 //             -> "Game")>   engine=auto|ue4|ue5 (FVector ABI)
 //
@@ -42,6 +44,7 @@ static ogsa::Publisher g_publisher;
 // FVector/FRotator ABI: UE5 = doubles (LWC, 24 bytes), UE4 = floats (12).
 // -1 = auto-detect pending (default), 1 = UE4, 0 = UE5. INI forces via engine=.
 static int g_engineIsUE4 = -1;
+static bool g_detectPause = true; // INI pause=off disables (C-11)
 static HMODULE g_module = nullptr;
 
 // ---- UE math (transcribed from FRotator::Quaternion(), UnrealMath) ----
@@ -198,11 +201,34 @@ static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
     return true;
 }
 
+// Pause (standard CONVENTIONS C-11): APlayerController::IsPaused is
+// BlueprintCallable and reports the world's pause state. It takes no
+// inputs, so the params buffer is just the return value; a missing
+// function leaves it zeroed, which reads as running. The engine tick
+// keeps firing while the game is paused, so the stream continues.
+static bool IsGamePaused(const UEVR_SDKData* sdk)
+{
+    UEVR_UObjectHandle pc = sdk->functions->get_player_controller(0);
+    if (pc == nullptr) return false;
+    struct { bool ReturnValue; uint8_t Pad[15]; } parms{};
+    sdk->uobject->call_function(pc, L"IsPaused", &parms);
+    return parms.ReturnValue;
+}
+
 static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
 {
     ogsa::telemetry::Vec3 pos, vel;
     ogsa::telemetry::Quat quat;
     const bool hasPose = SamplePawn(pos, quat, vel);
+    if (g_detectPause && hasPose)
+    {
+        const bool paused = IsGamePaused(g_api->sdk);
+        if (paused != g_publisher.paused())
+        {
+            g_publisher.set_paused(paused);
+            DebugLog("pause: %s\n", paused ? "paused" : "running");
+        }
+    }
     g_publisher.tick((double)deltaSeconds, hasPose, pos, quat, hasPose, vel);
 }
 
@@ -276,6 +302,8 @@ static void LoadConfig(ogsa::PublisherConfig& cfg)
         else if (key == "gameName") cfg.gameName = _strdup(val.c_str());
         else if (key == "dynamics")
             cfg.sendDynamics = (val != "off" && val != "0");
+        else if (key == "pause")
+            g_detectPause = (val != "off" && val != "0");
         else if (key == "engine")
         {
             if (val == "ue4") g_engineIsUE4 = 1;

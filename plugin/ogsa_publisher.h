@@ -56,6 +56,14 @@ public:
     /// rule. Input is stripped by StripInstanceSuffix first.
     void set_type_label(const char* label);
 
+    /// Reports the game's pause state on the ratified session.paused
+    /// channel (standard CONVENTIONS C-11). Keep ticking while paused:
+    /// motion keeps flowing with the frozen pose, the flag set and no
+    /// dynamics, so receivers bring hardware to rest instead of reading
+    /// silence as a dead session. Resuming restarts the derivation.
+    void set_paused(bool paused) { paused_ = paused; }
+    bool paused() const { return paused_; }
+
     /// Advances the clock by dt seconds and, if a pose is available,
     /// publishes at the configured cadence. posCm is UE world centimetres;
     /// quat is UE world orientation (x,y,z,w). velCm (UE world cm/s) is
@@ -90,6 +98,7 @@ private:
     telemetry::WireBuilder wire_;
     telemetry::BodyDynamicsDeriver deriver_;
     bool hadPose_ = false;
+    bool paused_ = false, wasPaused_ = false;
     PublisherConfig cfg_;
     std::string typeLabel_;
     double clock_ = 0.0, lastDiscovery_ = -1e18, lastMotion_ = -1e18;

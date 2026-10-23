@@ -78,7 +78,13 @@ void Publisher::tick(double dt, bool hasPose,
         Vec3 vel = ToStandard(velCm);
         vel.X /= 100.0f; vel.Y /= 100.0f; vel.Z /= 100.0f;
         Quat stdQ = ToStandard(quat);
-        deriver_.Sample(dt, std, stdQ, hasVel, vel);
+        // C-11: nothing is measured while paused; resuming starts the
+        // derivation fresh rather than differentiating across the pause
+        if (!paused_)
+        {
+            if (wasPaused_) deriver_ = telemetry::BodyDynamicsDeriver{};
+            deriver_.Sample(dt, std, stdQ, hasVel, vel);
+        }
         if (clock_ - lastMotion_ >= 1.0 / cfg_.motionHz)
         {
             sendMotion(std, stdQ);
@@ -93,6 +99,7 @@ void Publisher::tick(double dt, bool hasPose,
         deriver_ = telemetry::BodyDynamicsDeriver{};
     }
     hadPose_ = hasPose;
+    wasPaused_ = paused_;
 }
 
 void Publisher::sendDiscovery()
@@ -104,6 +111,10 @@ void Publisher::sendDiscovery()
     obj.Type = cfg_.objectType;
     obj.TypeLabel = typeLabel_;
     obj.Primary = true;
+    ChannelDecl paused;
+    paused.Name = "session.paused"; // ratified, C-11; id 0
+    paused.Description = "Simulation paused for the player (C-11)";
+    obj.Channels.push_back(paused);
     Environment env{};
     // declare the gravity the derivation actually uses, so consumers
     // scaling tilt cues (deg/g) divide by the sender's real value
@@ -118,7 +129,12 @@ void Publisher::sendMotion(const Vec3& posStdM, const Quat& stdQ)
     o.Name = cfg_.objectName;
     o.Position = posStdM; // already standard frame, metres
     o.Orientation = stdQ;
-    if (cfg_.sendDynamics)
+    ChannelValueInput paused;
+    paused.Id = 0; // session.paused
+    paused.IsBool = true;
+    paused.Boolean = paused_;
+    o.Channels.push_back(paused);
+    if (cfg_.sendDynamics && !paused_)
     {
         o.HasBodyDynamics = true;
         o.SpecificForce = deriver_.SpecificForce;

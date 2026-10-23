@@ -141,6 +141,24 @@ int main()
               std::abs(horiz - (float)(w * w * r)) < 1.5);
     }
 
+    // ---- pause (C-11): no derivation while paused, fresh start on resume ----
+    {
+        const float g = ogsa::telemetry::BodyDynamicsDeriver::Gravity;
+        const Quat level = RotatorToQuat(0, 0, 0);
+        pub.set_paused(true);
+        Check("pause: reported", pub.paused());
+        for (int i = 0; i < 30; i++)       // frozen pose while paused
+            pub.tick(dt, true, Vec3{ 0, 0, 0 }, level);
+        pub.set_paused(false);
+        pub.tick(dt, true, Vec3{ 500, 0, 0 }, level); // resume elsewhere
+        const Vec3& av = pub.last_angular_velocity();
+        const Vec3& sf = pub.last_specific_force();
+        Check("pause: resume restarts derivation (at rest: +1 g heave, no rates)",
+              std::abs(sf.Y - g) < 1e-3f && std::abs(sf.X) < 1e-3f &&
+              std::abs(sf.Z) < 1e-3f && std::abs(av.X) < 1e-6f &&
+              std::abs(av.Y) < 1e-6f && std::abs(av.Z) < 1e-6f);
+    }
+
     std::printf("smoke: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

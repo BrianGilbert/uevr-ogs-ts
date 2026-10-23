@@ -15,8 +15,8 @@ Status: **in-game verified (UE4)** — first live session on Stray
 (UE4) walked the cat around a room while a receiver watched the wire;
 that session exposed and fixed a FVector ABI footgun (UE4 floats read
 as UE5 doubles → position 0,0,~1e30). The ABI is now auto-detected at
-runtime (see Install). Standalone checks: `Test/smoke.cpp`, 14/14
-(wire + derived-dynamics assertions).
+runtime (see Install). Standalone checks: `Test/smoke.cpp`, 16/16
+(wire + derived-dynamics + pause assertions).
 
 ## What it tracks — the pawn, not the headset
 
@@ -43,8 +43,9 @@ port=40123
 ttl=1
 motionHz=60
 objectName=player
-objectType=humanoid    ; humanoid|vehicle|aircraft|watercraft|spacecraft|camera
+objectType=humanoid    ; humanoid|vehicle|aircraft|watercraft|spacecraft|camera|creature|other
 dynamics=on            ; on (default) | off — bodyDynamics variant in motion frames
+pause=on               ; on (default) | off — report pauses on session.paused (C-11)
 gameName=              ; default: the game's exe name, pack/build tokens
                        ; stripped ("Game-Win64-Shipping" -> "Game")
 engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
