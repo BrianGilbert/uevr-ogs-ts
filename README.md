@@ -1,5 +1,18 @@
 # uevr-ogsa-ts
 
+> [!IMPORTANT]
+> **In active development.** Validated in The Gunk, Stray and RoboCop:
+> Rogue City, but every Unreal game sets up its player differently, so
+> expect the odd title where tracking needs a config tweak. Please
+> report what you find on [Discord](https://discord.gg/yyCp5D2Ccp). If a
+> game misbehaves and I don't already own it, a key for it is the
+> fastest way to get it fixed.
+>
+> Development is funded by
+> [sponsorship](https://github.com/sponsors/BrianGilbert), which moves this
+> and the rest of the [OGSA](https://github.com/Open-Game-Standards-Alliance)
+> work forward.
+
 [UEVR](https://github.com/praydog/UEVR) plugin that publishes
 [OGSA Telemetry Standard (OGSA-TS)](https://github.com/Open-Game-Standards-Alliance/OGSA-Telemetry-Standard) motion
 telemetry from **any UE4/UE5 game UEVR injects** — zero game
