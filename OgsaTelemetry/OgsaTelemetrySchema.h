@@ -1086,29 +1086,29 @@ public:
             Vector = 1,
         };
 
-        explicit LocalGravityGroup(MotionObject& s) : S(&s) {}
-        Variant Which() const { return (Variant)S->WireReadBits(16, 16); }
+        explicit LocalGravityGroup(MotionObject& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(16, 16); }
 
         void SetNoLocalGravity() { Select(Variant::NoLocalGravity); }
 
-        ::ogsa::telemetry::schema::Vector3* GetVector() { return Which() == Variant::Vector ? static_cast<::ogsa::telemetry::schema::Vector3*>(S->WirePtrs[6].Child.get()) : nullptr; }
+        ::ogsa::telemetry::schema::Vector3* GetVector() { return Which() == Variant::Vector ? static_cast<::ogsa::telemetry::schema::Vector3*>(Self->WirePtrs[6].Child.get()) : nullptr; }
         /// Selects `vector`; returns its (existing or new) payload.
         ::ogsa::telemetry::schema::Vector3& InitVector()
         {
-            if (Which() == Variant::Vector && S->WirePtrs[6].Child)
-                return static_cast<::ogsa::telemetry::schema::Vector3&>(*S->WirePtrs[6].Child);
+            if (Which() == Variant::Vector && Self->WirePtrs[6].Child)
+                return static_cast<::ogsa::telemetry::schema::Vector3&>(*Self->WirePtrs[6].Child);
             Select(Variant::Vector);
-            return S->WireEmplace<::ogsa::telemetry::schema::Vector3>(6);
+            return Self->WireEmplace<::ogsa::telemetry::schema::Vector3>(6);
         }
 
     private:
-        MotionObject* S;
+        MotionObject* Self;
 
         void Select(Variant v)
         {
             if (Which() == v) return;
-            S->WirePtrs[6].Reset();
-            S->WireWriteBits(16, 16, (uint16_t)v);
+            Self->WirePtrs[6].Reset();
+            Self->WireWriteBits(16, 16, (uint16_t)v);
         }
     };
     LocalGravityGroup LocalGravity() { return LocalGravityGroup(*this); }
