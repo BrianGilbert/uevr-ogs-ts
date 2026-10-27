@@ -1,9 +1,9 @@
-// ogsa_publisher.h — engine-agnostic OGSA-TS publisher for the UEVR plugin.
+// ogs_publisher.h — engine-agnostic OGS-TS publisher for the UEVR plugin.
 //
 // Owns the winsock multicast socket and the cadence logic (discovery every
 // N seconds, motion at the configured rate), and serializes with the
-// vendored, corpus-locked ogsa-ts-unreal core (OgsaTelemetry/). Input pose
-// is UE world space (cm, LH X-fwd Y-right Z-up); conversion to the OGSA-TS
+// vendored, corpus-locked ogs-ts-unreal core (OgsTelemetry/). Input pose
+// is UE world space (cm, LH X-fwd Y-right Z-up); conversion to the OGS-TS
 // frame happens here via ToStandard. Shared with Test/smoke.cpp so the
 // wire path is testable without UEVR.
 //
@@ -21,10 +21,10 @@
 #include <string>
 #include <vector>
 #include <cstdint>
-#include "OgsaTelemetry/OgsaTelemetryWire.h"
-#include "OgsaTelemetry/OgsaTelemetryFrame.h"
+#include "OgsTelemetry/OgsTelemetryWire.h"
+#include "OgsTelemetry/OgsTelemetryFrame.h"
 
-namespace ogsa {
+namespace ogs {
 
 struct PublisherConfig
 {
@@ -111,4 +111,4 @@ private:
 /// underscore segment is not purely numeric.
 std::string StripInstanceSuffix(const std::string& name);
 
-} // namespace ogsa
+} // namespace ogs

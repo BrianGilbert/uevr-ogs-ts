@@ -1,14 +1,14 @@
-// Plugin.cpp — OGSA-TS telemetry for UEVR (praydog's Universal UE VR mod).
+// Plugin.cpp — OGS-TS telemetry for UEVR (praydog's Universal UE VR mod).
 //
 // Publishes the LOCAL PAWN's world pose (the object the player controls —
 // not the HMD/camera: the camera is engine-smoothed and rig-following it
-// would feed platform motion back into telemetry; see the OGSA knowledge
-// base, projects/uevr, ruling C-20261010-MBP-08) as OGSA-TS motion
+// would feed platform motion back into telemetry; see the OGS knowledge
+// base, projects/uevr, ruling C-20261010-MBP-08) as OGS-TS motion
 // telemetry over UDP multicast. Zero game modification; LAN only.
 //
 // Install: drop the DLL next to this file's build output into
 //   <uevr>/plugins/   (per-game: <game>/uevr/plugins/)
-// Config: ogsa_telemetry.ini beside the DLL (optional):
+// Config: ogs_telemetry.ini beside the DLL (optional):
 //   group=239.255.17.17  port=40123  ttl=1  motionHz=60
 //   objectName=player    objectType=humanoid|vehicle|aircraft|watercraft|spacecraft
 //   dynamics=on|off (default on: motion frames carry the bodyDynamics
@@ -27,7 +27,7 @@
 // garbage (first observed in-game on Stray/UE4, 2026-10-12).
 //
 // UEVR plugin API vendored under vendor/uevr (MIT, praydog, pinned
-// @4ee5c6b); serializer vendored from ogsa-ts-unreal (corpus-locked).
+// @4ee5c6b); serializer vendored from ogs-ts-unreal (corpus-locked).
 #include <winsock2.h>
 #include <windows.h>
 #include <cmath>
@@ -37,10 +37,10 @@
 #include <string>
 
 #include "uevr/API.h"
-#include "ogsa_publisher.h"
+#include "ogs_publisher.h"
 
 static const UEVR_PluginInitializeParam* g_api = nullptr;
-static ogsa::Publisher g_publisher;
+static ogs::Publisher g_publisher;
 // FVector/FRotator ABI: UE5 = doubles (LWC, 24 bytes), UE4 = floats (12).
 // -1 = auto-detect pending (default), 1 = UE4, 0 = UE5. INI forces via engine=.
 static int g_engineIsUE4 = -1;
@@ -49,7 +49,7 @@ static HMODULE g_module = nullptr;
 
 // ---- UE math (transcribed from FRotator::Quaternion(), UnrealMath) ----
 // FRotator: Pitch about Y, Yaw about Z, Roll about X; degrees; UE frame.
-static ogsa::telemetry::Quat RotatorToQuat(double pitchDeg, double yawDeg,
+static ogs::telemetry::Quat RotatorToQuat(double pitchDeg, double yawDeg,
                                            double rollDeg)
 {
     const double half = 3.14159265358979323846 / 180.0 / 2.0;
@@ -86,12 +86,12 @@ static void DetectEngineAbi(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
     const int size = fn ? sdk->ustruct->get_properties_size(fn) : 0;
     if (size <= 0) return; // not resolvable yet — retry next tick
     g_engineIsUE4 = (size < 24) ? 1 : 0;
-    g_api->functions->log_info("[ogsa] FVector ABI auto-detected: params "
+    g_api->functions->log_info("[ogs] FVector ABI auto-detected: params "
                                "size %d -> %s", size,
                                g_engineIsUE4 ? "UE4 (floats)" : "UE5 (doubles)");
 }
 
-// ---- debug trace (ogsa_telemetry_debug.log beside the DLL) ----
+// ---- debug trace (ogs_telemetry_debug.log beside the DLL) ----
 // UEVR's own log needs its overlay/console; the mod writes its own small
 // trace (rewritten each launch): config as loaded, the first FName
 // resolution, and every label change.
@@ -105,8 +105,8 @@ static void DebugLog(const char* fmt, ...)
         std::string p(path);
         const auto slash = p.find_last_of("\\/");
         f = fopen((slash == std::string::npos
-            ? std::string("ogsa_telemetry_debug.log")
-            : p.substr(0, slash + 1) + "ogsa_telemetry_debug.log").c_str(), "w");
+            ? std::string("ogs_telemetry_debug.log")
+            : p.substr(0, slash + 1) + "ogs_telemetry_debug.log").c_str(), "w");
         if (!f) return;
     }
     va_list ap; va_start(ap, fmt);
@@ -159,9 +159,9 @@ static void UpdateTypeLabel(const UEVR_SDKData* sdk, UEVR_UObjectHandle pawn)
     }
 }
 
-static bool SamplePawn(ogsa::telemetry::Vec3& posCm,
-                       ogsa::telemetry::Quat& quat,
-                       ogsa::telemetry::Vec3& velCm)
+static bool SamplePawn(ogs::telemetry::Vec3& posCm,
+                       ogs::telemetry::Quat& quat,
+                       ogs::telemetry::Vec3& velCm)
 {
     const UEVR_SDKData* sdk = g_api->sdk;
     UEVR_UObjectHandle pawn = sdk->functions->get_local_pawn(0);
@@ -217,8 +217,8 @@ static bool IsGamePaused(const UEVR_SDKData* sdk)
 
 static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
 {
-    ogsa::telemetry::Vec3 pos, vel;
-    ogsa::telemetry::Quat quat;
+    ogs::telemetry::Vec3 pos, vel;
+    ogs::telemetry::Quat quat;
     const bool hasPose = SamplePawn(pos, quat, vel);
     if (g_detectPause && hasPose)
     {
@@ -239,8 +239,8 @@ static std::string ConfigPath()
     GetModuleFileNameA(g_module, path, MAX_PATH);
     std::string p(path);
     const auto slash = p.find_last_of("\\/");
-    return slash == std::string::npos ? "ogsa_telemetry.ini"
-                                      : p.substr(0, slash + 1) + "ogsa_telemetry.ini";
+    return slash == std::string::npos ? "ogs_telemetry.ini"
+                                      : p.substr(0, slash + 1) + "ogs_telemetry.ini";
 }
 
 static std::string DefaultGameName()
@@ -283,7 +283,7 @@ static uint16_t ObjectTypeFromName(const std::string& s)
     return 5; // humanoid
 }
 
-static void LoadConfig(ogsa::PublisherConfig& cfg)
+static void LoadConfig(ogs::PublisherConfig& cfg)
 {
     std::ifstream ini(ConfigPath());
     if (!ini) return;
@@ -319,20 +319,20 @@ extern "C" __declspec(dllexport) bool uevr_plugin_initialize(
 {
     g_api = param;
 
-    ogsa::PublisherConfig cfg;
+    ogs::PublisherConfig cfg;
     cfg.gameName = _strdup(DefaultGameName().c_str());
     LoadConfig(cfg);
-    DebugLog("ogsa_telemetry uevr start: game='%s' object='%s' -> %s:%d\n",
+    DebugLog("ogs_telemetry uevr start: game='%s' object='%s' -> %s:%d\n",
              cfg.gameName, cfg.objectName, cfg.group, cfg.port);
 
     if (!g_publisher.start(cfg))
     {
         param->functions->log_error(
-            "[ogsa] failed to create multicast socket — plugin disabled");
+            "[ogs] failed to create multicast socket — plugin disabled");
         return false;
     }
     param->sdk->callbacks->on_post_engine_tick(OnEngineTick);
-    param->functions->log_info("[ogsa] OGSA-TS telemetry loaded: pawn '%s' "
+    param->functions->log_info("[ogs] OGS-TS telemetry loaded: pawn '%s' "
                                "from '%s' -> %s:%d (engine ABI: %s, "
                                "dynamics: %s)",
                                cfg.objectName, cfg.gameName, cfg.group,

@@ -1,18 +1,18 @@
-# sync-core.ps1 — vendor the canonical serializer from ogsa-ts-unreal.
-# The headers are the same files ogsa-ts-unreal proves against the
+# sync-core.ps1 — vendor the canonical serializer from ogs-ts-unreal.
+# The headers are the same files ogs-ts-unreal proves against the
 # standard's conformance corpus (its Test/ binary). Run from repo root.
 $ErrorActionPreference = 'Stop'
 
-$src = "../ogsa-ts-unreal/Source/OgsaTelemetryCore/Public/OgsaTelemetry"
-$dst = "OgsaTelemetry"
+$src = "../ogs-ts-unreal/Source/OgsTelemetryCore/Public/OgsTelemetry"
+$dst = "OgsTelemetry"
 
-if (-not (Test-Path "$src/OgsaTelemetryWire.h")) {
-    throw "source not found: $src (is ogsa-ts-unreal checked out as a sibling?)"
+if (-not (Test-Path "$src/OgsTelemetryWire.h")) {
+    throw "source not found: $src (is ogs-ts-unreal checked out as a sibling?)"
 }
 
 $changed = 0
-foreach ($f in @("OgsaTelemetryCanonical.h", "OgsaTelemetrySchema.h",
-                 "OgsaTelemetryWire.h", "OgsaTelemetryFrame.h")) {
+foreach ($f in @("OgsTelemetryCanonical.h", "OgsTelemetrySchema.h",
+                 "OgsTelemetryWire.h", "OgsTelemetryFrame.h")) {
     if (-not (Test-Path "$dst/$f") -or
         (Get-FileHash "$src/$f").Hash -ne (Get-FileHash "$dst/$f").Hash) {
         Copy-Item "$src/$f" "$dst/$f"

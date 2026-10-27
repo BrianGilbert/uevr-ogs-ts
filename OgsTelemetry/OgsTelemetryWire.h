@@ -1,23 +1,23 @@
-// OgsaTelemetryWire.h — OGSA-TS frame builders and the OMT1 envelope.
+// OgsTelemetryWire.h — OGS-TS frame builders and the OMT1 envelope.
 //
 // The engine-facing API: plain input structs in, a canonical-encoded
 // datagram out. Frames are written through the generated schema writers
-// (OgsaTelemetrySchema.h — offsets from the official Cap'n Proto compiler,
+// (OgsTelemetrySchema.h — offsets from the official Cap'n Proto compiler,
 // never hand-derived) and laid out by the canonical encoder
-// (OgsaTelemetryCanonical.h), so the bytes follow the standard's canonical
-// OGSA encoding and byte-match the conformance corpus
-// (OGSA-Telemetry-Standard/conformance/; Test/ proves it).
+// (OgsTelemetryCanonical.h), so the bytes follow the standard's canonical
+// OGS encoding and byte-match the conformance corpus
+// (OGS-Telemetry-Standard/conformance/; Test/ proves it).
 //
 // Frames needing schema fields these input structs do not cover can use
 // the schema writers directly and encode them with wire::Encode.
 #pragma once
-#include "OgsaTelemetrySchema.h"
+#include "OgsTelemetrySchema.h"
 #include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
 
-namespace ogsa::telemetry
+namespace ogs::telemetry
 {
 
 enum class FrameType : uint8_t { Discovery = 0, Motion = 1, Event = 2 };
@@ -227,4 +227,4 @@ inline void BuildEventFrame(WireBuilder& b, double timestamp,
     b.W = wire::Encode(f);
 }
 
-} // namespace ogsa::telemetry
+} // namespace ogs::telemetry

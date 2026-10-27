@@ -1,5 +1,5 @@
-// OgsaTelemetryCanonical.h — canonical Cap'n Proto encoding runtime for the
-// generated schema writers (OgsaTelemetrySchema.h).
+// OgsTelemetryCanonical.h — canonical Cap'n Proto encoding runtime for the
+// generated schema writers (OgsTelemetrySchema.h).
 //
 // A message is built as a tree of Struct nodes (data words + pointer slots
 // holding Text, a child struct, or a struct list) and laid out by Encode()
@@ -7,7 +7,7 @@
 // in preorder, trailing zero data words and null pointers truncated (per
 // struct list: across all elements), zero-sized structs at offset -1.
 // Together with the writers' field-presence rules this is the standard's
-// canonical OGSA encoding (implementation-capnproto.md, Encoding rules):
+// canonical OGS encoding (implementation-capnproto.md, Encoding rules):
 // the bytes depend only on the content, never on build order.
 //
 // std-only C++17: no allocator tricks, no host-endian memory views, no
@@ -21,13 +21,13 @@
 #include <utility>
 #include <vector>
 
-namespace ogsa::telemetry::wire
+namespace ogs::telemetry::wire
 {
 
 class Struct;
 
 /// One pointer slot. Null when nothing is set — a struct list with no
-/// elements is null too (canonical OGSA encoding writes empty lists as null).
+/// elements is null too (canonical OGS encoding writes empty lists as null).
 struct Pointer
 {
     std::string Text;
@@ -202,4 +202,4 @@ inline std::vector<uint64_t> Encode(const Struct& root)
     return w;
 }
 
-} // namespace ogsa::telemetry::wire
+} // namespace ogs::telemetry::wire

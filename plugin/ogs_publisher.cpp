@@ -1,10 +1,10 @@
-// ogsa_publisher.cpp — see header. The wire layout mirrors
-// ogsa-ts-unreal's UTelemetryPublisherComponent exactly (same allocation
+// ogs_publisher.cpp — see header. The wire layout mirrors
+// ogs-ts-unreal's UTelemetryPublisherComponent exactly (same allocation
 // order, corpus-locked serializer).
-#include "ogsa_publisher.h"
+#include "ogs_publisher.h"
 #include <ctime>
 
-namespace ogsa {
+namespace ogs {
 
 using namespace telemetry;
 
@@ -145,4 +145,4 @@ void Publisher::sendMotion(const Vec3& posStdM, const Quat& stdQ)
     send(FrameType::Motion, wire_.Wrap(FrameType::Motion));
 }
 
-} // namespace ogsa
+} // namespace ogs

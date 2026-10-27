@@ -1,14 +1,14 @@
 // smoke.cpp — standalone verification of the UEVR plugin's wire path and
-// math, no UEVR required. Runs the exact publisher code (ogsa_publisher)
+// math, no UEVR required. Runs the exact publisher code (ogs_publisher)
 // against synthetic pawn motion and asserts the conversion chain:
 // FRotator -> FQuat (FRotator::Quaternion transcription) -> ToStandard ->
-// facing expectations (mirrors ogsa-ts-unreal Test/main.cpp). Exit 0 = pass.
+// facing expectations (mirrors ogs-ts-unreal Test/main.cpp). Exit 0 = pass.
 #include <winsock2.h>
 #include <cstdio>
 #include <cmath>
-#include "../plugin/ogsa_publisher.h"
+#include "../plugin/ogs_publisher.h"
 
-using namespace ogsa::telemetry;
+using namespace ogs::telemetry;
 
 static int g_pass = 0, g_fail = 0;
 static void Check(const char* name, bool ok)
@@ -17,7 +17,7 @@ static void Check(const char* name, bool ok)
     std::printf("%s %s\n", ok ? "PASS" : "FAIL", name);
 }
 
-static ogsa::telemetry::Quat RotatorToQuat(double p, double y, double r)
+static ogs::telemetry::Quat RotatorToQuat(double p, double y, double r)
 {
     const double half = 3.14159265358979323846 / 180.0 / 2.0;
     const double sp = std::sin(p * half), cp = std::cos(p * half);
@@ -41,7 +41,7 @@ int main()
         // UE yaw +90 deg about Z: faces +X -> +Y in UE space.
         // After ToStandard (cyclic xyz permutation), standard forward
         // (+Z) must land on standard right (+X) — same sense (mirrors
-        // the quaternion-based check in ogsa-ts-unreal's conformance).
+        // the quaternion-based check in ogs-ts-unreal's conformance).
         Quat s = ToStandard(RotatorToQuat(0, 90, 0));
         Vec3 fwd = Rotate(s, { 0, 0, 1 });
         Check("UE yaw 90 -> standard forward faces +X",
@@ -69,25 +69,25 @@ int main()
     // ---- typeLabel: UE instance-suffix stripping ----
     {
         Check("instance suffix stripped",
-              ogsa::StripInstanceSuffix("BP_PlayerCharacter_C_3")
+              ogs::StripInstanceSuffix("BP_PlayerCharacter_C_3")
                   == "BP_PlayerCharacter_C");
         Check("multi-digit instance suffix stripped",
-              ogsa::StripInstanceSuffix("Sportscar_12") == "Sportscar");
+              ogs::StripInstanceSuffix("Sportscar_12") == "Sportscar");
         Check("non-numeric suffix kept",
-              ogsa::StripInstanceSuffix("Wing_2L") == "Wing_2L");
-        Check("no suffix kept", ogsa::StripInstanceSuffix("Pawn") == "Pawn");
+              ogs::StripInstanceSuffix("Wing_2L") == "Wing_2L");
+        Check("no suffix kept", ogs::StripInstanceSuffix("Pawn") == "Pawn");
     }
 
     // ---- wire path: publish 150 synthetic ticks (2.5 s at 60 Hz) ----
     // A pawn circling at 10 m with a yaw sweep — receivers on the LAN
-    // (ogsa-ts-dotnet TelemetryReceive) should see discovery + motion.
+    // (ogs-ts-dotnet TelemetryReceive) should see discovery + motion.
     // Engine velocity is fed analytically (tangential), exercising the
     // GetVelocity plumbing, and the derived body dynamics are asserted:
     // yaw rate ≈ 90°/s, heave ≈ +1 g (accelerometer-style), horizontal
     // specific force ≈ centripetal ω²r.
-    ogsa::Publisher pub;
-    ogsa::PublisherConfig cfg;
-    cfg.gameName = "ogsa_smoke";
+    ogs::Publisher pub;
+    ogs::PublisherConfig cfg;
+    cfg.gameName = "ogs_smoke";
     cfg.objectName = "synthetic_pawn";
     if (!pub.start(cfg)) { std::printf("FAIL socket start\n"); return 1; }
     const double dt = 1.0 / 60.0;
@@ -116,7 +116,7 @@ int main()
 
     // ---- derived body dynamics (circling pawn, engine velocity fed) ----
     {
-        const float g = ogsa::telemetry::BodyDynamicsDeriver::Gravity;
+        const float g = ogs::telemetry::BodyDynamicsDeriver::Gravity;
         const Vec3& av = pub.last_angular_velocity();
         const Vec3& sf = pub.last_specific_force();
         std::printf("dynamics: av=(%.4f, %.4f, %.4f) sf=(%.4f, %.4f, %.4f) "
@@ -143,7 +143,7 @@ int main()
 
     // ---- pause (C-11): no derivation while paused, fresh start on resume ----
     {
-        const float g = ogsa::telemetry::BodyDynamicsDeriver::Gravity;
+        const float g = ogs::telemetry::BodyDynamicsDeriver::Gravity;
         const Quat level = RotatorToQuat(0, 0, 0);
         pub.set_paused(true);
         Check("pause: reported", pub.paused());

@@ -1,15 +1,15 @@
 // conformance.cpp — serializer conformance test guarding this plugin's
-// vendored core (OgsaTelemetry/*.h, synced via sync-core.ps1). Rebuilds
+// vendored core (OgsTelemetry/*.h, synced via sync-core.ps1). Rebuilds
 // the standard's golden vectors from semantic inputs and
 // byte-compares against conformance/vectors/*.hex, then checks the UE→
 // standard frame conversion. Exit code 0 = all pass.
 //
 // Build & run (no engine required):
 //   cmake -S Test -B Test/build && cmake --build Test/build
-//   Test/build/ogsa_conformance <corpusDir>
-// <corpusDir> defaults to ../../OGSA-Telemetry-Standard/conformance
-#include "OgsaTelemetry/OgsaTelemetryWire.h"
-#include "OgsaTelemetry/OgsaTelemetryFrame.h"
+//   Test/build/ogs_conformance <corpusDir>
+// <corpusDir> defaults to ../../OGS-Telemetry-Standard/conformance
+#include "OgsTelemetry/OgsTelemetryWire.h"
+#include "OgsTelemetry/OgsTelemetryFrame.h"
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -17,7 +17,7 @@
 #include <fstream>
 #include <sstream>
 
-using namespace ogsa::telemetry;
+using namespace ogs::telemetry;
 
 static int g_fail = 0, g_pass = 0;
 
@@ -68,7 +68,7 @@ int main(int argc, char** argv)
 {
     namespace fs = std::filesystem;
     fs::path corpus = argc > 1 ? argv[1]
-        : fs::path("..") / ".." / "OGSA-Telemetry-Standard" / "conformance";
+        : fs::path("..") / ".." / "OGS-Telemetry-Standard" / "conformance";
     WireBuilder b;
 
     { // discovery-minimal

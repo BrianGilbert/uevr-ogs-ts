@@ -1,6 +1,6 @@
-// OgsaTelemetryFrame.h — Unreal Engine → OGSA-TS frame conversion.
+// OgsTelemetryFrame.h — Unreal Engine → OGS-TS frame conversion.
 //
-// UE is left-handed, X-forward, Y-right, Z-up. OGSA-TS is left-handed,
+// UE is left-handed, X-forward, Y-right, Z-up. OGS-TS is left-handed,
 // Z-forward, X-right, Y-up. The map is the cyclic axis permutation
 //   (x, y, z)_std = (y, z, x)_ue — an even permutation, so handedness
 //   is preserved (both left-handed).
@@ -12,9 +12,9 @@
 // toward standard right — equal angle, equal sense; norm preserved).
 #pragma once
 #include <cmath>
-#include "OgsaTelemetryWire.h"
+#include "OgsTelemetryWire.h"
 
-namespace ogsa::telemetry
+namespace ogs::telemetry
 {
 
 inline Vec3 ToStandard(const Vec3& ue) { return { ue.Y, ue.Z, ue.X }; }
@@ -50,10 +50,10 @@ inline Vec3 Rotate(const Quat& q, const Vec3& v)
 }
 
 // ---- pose → body-dynamics derivation ---------------------------------
-// C++ twin of Ogsa.Telemetry.BodyDynamicsDeriver (ogsa-ts-dotnet); the
+// C++ twin of Ogs.Telemetry.BodyDynamicsDeriver (ogs-ts-dotnet); the
 // two must stay behaviourally identical — that project's tests pin the
-// semantics, and this twin serves the injected senders (uevr-ogsa-ts,
-// ue4ss-ogsa-ts) whose games expose no accelerometer-class data.
+// semantics, and this twin serves the injected senders (uevr-ogs-ts,
+// ue4ss-ogs-ts) whose games expose no accelerometer-class data.
 //
 // Semantics (schema bodyDynamics variant, accelerometer-style):
 //   specificForce = a_world − g_world — +|g| on +heave at rest (what an
@@ -223,4 +223,4 @@ private:
     bool pendingTeleport_ = false; // no-velocity path: one strike is accel onset, two is a teleport
 };
 
-} // namespace ogsa::telemetry
+} // namespace ogs::telemetry
