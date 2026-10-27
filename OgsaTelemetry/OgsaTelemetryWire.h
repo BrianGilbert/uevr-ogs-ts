@@ -12,6 +12,7 @@
 // the schema writers directly and encode them with wire::Encode.
 #pragma once
 #include "OgsaTelemetrySchema.h"
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -74,6 +75,9 @@ struct MotionObjectInput
     Vec3 AngularVelocity; // rad/s, body frame, C-4 axes (+x nose-up,
                           // +y nose-right, +z right-side-down)
     bool HasBodyDynamics = false;
+    Vec3 LocalGravity;    // m/s², world frame, pointing the way gravity
+                          // pulls; per frame (CONVENTIONS C-12)
+    bool HasLocalGravity = false;
     std::vector<ChannelValueInput> Channels;
 };
 
@@ -99,12 +103,31 @@ struct EventInput
 struct Environment
 {
     // standard atmosphere in the schema's SI units (kg/m^3, degC, Pa, m/s^2)
-    float AirDensity = 1.225f, Temperature = 20, Pressure = 101325, Gravity = 9.81f;
+    // and standard gravity, the value BodyDynamicsDeriver assumes by default
+    float AirDensity = 1.225f, Temperature = 20, Pressure = 101325, Gravity = 9.80665f;
     uint16_t Medium = 2; // ContactMedium ordinal; other holds 0 so the
                          // catch-all never interleaves with real mediums:
                          // 0 other, 1 air, 2 asphalt, 3 dirt, 4 grass,
                          // 5 gravel, 6 rumbleStrip, 7 water, 8 snow,
                          // 9 ice, 10 vacuum
+    // gravity direction (CONVENTIONS C-12): unset = along world −Y with
+    // magnitude Gravity; set = world-frame vector (Gravity = its length)
+    Vec3 GravityVector; bool HasGravityVector = false;
+
+    /// Session gravity as a world-frame vector (C-12 resolution).
+    Vec3 GravityWorld() const
+    {
+        return HasGravityVector ? GravityVector : Vec3{ 0.0f, -Gravity, 0.0f };
+    }
+
+    /// Sets the session gravity from a world-frame vector: straight down
+    /// rides as the scalar alone, any other direction also as the vector.
+    void SetGravity(const Vec3& g)
+    {
+        Gravity = std::sqrt(g.X * g.X + g.Y * g.Y + g.Z * g.Z);
+        HasGravityVector = !(g.X == 0.0f && g.Z == 0.0f && g.Y <= 0.0f);
+        GravityVector = HasGravityVector ? g : Vec3{};
+    }
 };
 
 // ---- frame builders ----
@@ -127,6 +150,7 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
     e.SetAirDensity(env.AirDensity); e.SetTemperature(env.Temperature);
     e.SetPressure(env.Pressure); e.SetGravity(env.Gravity);
     e.SetMedium((schema::ContactMedium)env.Medium);
+    if (env.HasGravityVector) SetVec3(e.InitGravityVector(), env.GravityVector);
     for (const ObjectDecl& o : objects)
     {
         schema::ObjectDescriptor& od = d.AddObjects();
@@ -173,6 +197,7 @@ inline void BuildMotion(WireBuilder& b, double timestamp,
             SetVec3(bd.SpecificForce(), o.SpecificForce);
             SetVec3(bd.AngularVelocity(), o.AngularVelocity);
         }
+        if (o.HasLocalGravity) SetVec3(mo.LocalGravity().InitVector(), o.LocalGravity);
         for (const ChannelValueInput& c : o.Channels)
         {
             schema::ChannelValue& cv = mo.AddChannels();

@@ -1,6 +1,6 @@
 // conformance.cpp — serializer conformance test guarding this plugin's
 // vendored core (OgsaTelemetry/*.h, synced via sync-core.ps1). Rebuilds
-// the standard's seven golden vectors from semantic inputs and
+// the standard's golden vectors from semantic inputs and
 // byte-compares against conformance/vectors/*.hex, then checks the UE→
 // standard frame conversion. Exit code 0 = all pass.
 //
@@ -135,6 +135,33 @@ int main(int argc, char** argv)
         BuildEventFrame(b, 0.125, { e });
         CheckVector(corpus, "event-impact", FrameType::Event,
                     b.Wrap(FrameType::Event));
+    }
+    { // discovery-gravity-vector
+        ObjectDecl obj; obj.Name = "obj"; obj.RefPointName = "";
+        obj.Type = 4; // spacecraft
+        Environment env = CorpusEnvironment();
+        env.Medium = 10; // vacuum
+        env.SetGravity({ 3, -4, 0 }); // tilted: vector + magnitude 5 (C-12)
+        BuildDiscovery(b, 1, 1730000000000000LL, "conformance", env, { obj });
+        CheckVector(corpus, "discovery-gravity-vector", FrameType::Discovery,
+                    b.Wrap(FrameType::Discovery));
+    }
+    { // motion-local-gravity
+        MotionObjectInput o; o.Name = "obj";
+        o.Position = { 12, 0.5f, -4 }; o.Orientation = { 0, 0, 0, 1 };
+        o.HasBodyDynamics = true; o.SpecificForce = { 2, 0, 0 };
+        o.HasLocalGravity = true; o.LocalGravity = { -2, 0, 0 };
+        BuildMotion(b, 5.25, { o });
+        CheckVector(corpus, "motion-local-gravity", FrameType::Motion,
+                    b.Wrap(FrameType::Motion));
+    }
+    { // motion-local-gravity-zero
+        MotionObjectInput o; o.Name = "obj";
+        o.Position = { 1, 2, 3 }; o.Orientation = { 0, 0, 0, 1 };
+        o.HasLocalGravity = true; // weightless: selected zero vector
+        BuildMotion(b, 6.5, { o });
+        CheckVector(corpus, "motion-local-gravity-zero", FrameType::Motion,
+                    b.Wrap(FrameType::Motion));
     }
 
     // ---- UE frame conversion ----

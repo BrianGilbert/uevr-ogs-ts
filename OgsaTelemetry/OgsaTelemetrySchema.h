@@ -154,9 +154,17 @@ public:
 class Environment final : public ::ogsa::telemetry::wire::Struct
 {
 public:
-    Environment() : Struct(3, 0)
+    enum class Variant : uint16_t
+    {
+        NoGravityVector = 0,
+        GravityVector = 1,
+    };
+
+    Environment() : Struct(3, 1)
     {
     }
+
+    Variant Which() const { return (Variant)WireReadBits(144, 16); }
 
     float AirDensity() const { return WireReadFloat32(0); }
     void SetAirDensity(float v) { WireWriteFloat32(0, v); }
@@ -172,6 +180,26 @@ public:
 
     ::ogsa::telemetry::schema::ContactMedium Medium() const { return (::ogsa::telemetry::schema::ContactMedium)WireReadBits(128, 16); }
     void SetMedium(::ogsa::telemetry::schema::ContactMedium v) { WireWriteBits(128, 16, (uint16_t)v); }
+
+    void SetNoGravityVector() { Select(Variant::NoGravityVector); }
+
+    ::ogsa::telemetry::schema::Vector3* GetGravityVector() { return Which() == Variant::GravityVector ? static_cast<::ogsa::telemetry::schema::Vector3*>(WirePtrs[0].Child.get()) : nullptr; }
+    /// Selects `gravityVector`; returns its (existing or new) payload.
+    ::ogsa::telemetry::schema::Vector3& InitGravityVector()
+    {
+        if (Which() == Variant::GravityVector && WirePtrs[0].Child)
+            return static_cast<::ogsa::telemetry::schema::Vector3&>(*WirePtrs[0].Child);
+        Select(Variant::GravityVector);
+        return WireEmplace<::ogsa::telemetry::schema::Vector3>(0);
+    }
+
+private:
+    void Select(Variant v)
+    {
+        if (Which() == v) return;
+        WirePtrs[0].Reset();
+        WireWriteBits(144, 16, (uint16_t)v);
+    }
 };
 
 class NamedPoint final : public ::ogsa::telemetry::wire::Struct
@@ -996,7 +1024,7 @@ public:
         BodyDynamics = 2,
     };
 
-    MotionObject() : Struct(1, 6)
+    MotionObject() : Struct(1, 7)
     {
         WireSetText(0, std::string());
         WireEmplace<::ogsa::telemetry::schema::Vector3>(1);
@@ -1047,6 +1075,43 @@ public:
     size_t ChannelsCount() const { return WirePtrs[5].List.size(); }
     ::ogsa::telemetry::schema::ChannelValue& Channels(size_t i) { return static_cast<::ogsa::telemetry::schema::ChannelValue&>(*WirePtrs[5].List[i]); }
     void ClearChannels() { WirePtrs[5].List.clear(); }
+
+    /// Named union `localGravity`, a view over the MotionObject's storage.
+    class LocalGravityGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoLocalGravity = 0,
+            Vector = 1,
+        };
+
+        explicit LocalGravityGroup(MotionObject& s) : S(&s) {}
+        Variant Which() const { return (Variant)S->WireReadBits(16, 16); }
+
+        void SetNoLocalGravity() { Select(Variant::NoLocalGravity); }
+
+        ::ogsa::telemetry::schema::Vector3* GetVector() { return Which() == Variant::Vector ? static_cast<::ogsa::telemetry::schema::Vector3*>(S->WirePtrs[6].Child.get()) : nullptr; }
+        /// Selects `vector`; returns its (existing or new) payload.
+        ::ogsa::telemetry::schema::Vector3& InitVector()
+        {
+            if (Which() == Variant::Vector && S->WirePtrs[6].Child)
+                return static_cast<::ogsa::telemetry::schema::Vector3&>(*S->WirePtrs[6].Child);
+            Select(Variant::Vector);
+            return S->WireEmplace<::ogsa::telemetry::schema::Vector3>(6);
+        }
+
+    private:
+        MotionObject* S;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            S->WirePtrs[6].Reset();
+            S->WireWriteBits(16, 16, (uint16_t)v);
+        }
+    };
+    LocalGravityGroup LocalGravity() { return LocalGravityGroup(*this); }
 
 private:
     void Select(Variant v)

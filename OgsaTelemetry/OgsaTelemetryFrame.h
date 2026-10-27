@@ -56,10 +56,12 @@ inline Vec3 Rotate(const Quat& q, const Vec3& v)
 // ue4ss-ogsa-ts) whose games expose no accelerometer-class data.
 //
 // Semantics (schema bodyDynamics variant, accelerometer-style):
-//   specificForce = a_world − g_world — +9.80665 on +heave at rest
-//   (what an IMU reads), rotated into the C-4 body frame by the inverse
-//   of the reported orientation (v_world = q · v_body for actor-style
-//   rotations in the standard frame).
+//   specificForce = a_world − g_world — +|g| on +heave at rest (what an
+//   IMU reads), rotated into the C-4 body frame by the inverse of the
+//   reported orientation (v_world = q · v_body for actor-style rotations
+//   in the standard frame). g_world = GravityVector: standard gravity
+//   along world −Y by default; set it to the gravity the stream declares
+//   for the object (CONVENTIONS C-12).
 //   angularVelocity = log(q_t⁻¹ ⊗ q_t₊₁)/dt, artifact-free at attitude
 //   representation flips (unlike Euler differentiation).
 //
@@ -96,6 +98,11 @@ struct BodyDynamicsDeriver
 
     Vec3 SpecificForce{};    // m/s², body frame, C-4 axes
     Vec3 AngularVelocity{};  // rad/s, body frame, C-4 axes
+
+    /// World-frame gravity the specific force reacts to (m/s², pointing the
+    /// way gravity pulls; C-12). Set before each Sample; a change applies
+    /// from that sample on, with no estimator reset.
+    Vec3 GravityVector{ 0.0f, -Gravity, 0.0f };
 
     /// Feeds one pose sample (standard frame: metres, unit quaternion,
     /// world space; dt in seconds — call every host tick, not just at
@@ -153,8 +160,7 @@ struct BodyDynamicsDeriver
                              Scale(Sub(accel, filteredAccel_), (float)blend));
 
         AngularVelocity = AngularVelocityFromDelta(prevOrientation_, orientation, dt);
-        SpecificForce = RotateByInverse(orientation,
-            Add(filteredAccel_, Vec3{ 0.0f, Gravity, 0.0f }));
+        SpecificForce = RotateByInverse(orientation, Sub(filteredAccel_, GravityVector));
 
         prevPosition_ = position;
         prevVelocity_ = velocity;
@@ -165,7 +171,7 @@ struct BodyDynamicsDeriver
     /// zero angular velocity.
     void Reset(const Vec3& position, const Quat& orientation)
     {
-        SpecificForce = RotateByInverse(orientation, Vec3{ 0.0f, Gravity, 0.0f });
+        SpecificForce = RotateByInverse(orientation, Scale(GravityVector, -1.0f));
         AngularVelocity = Vec3{};
         prevPosition_ = position;
         prevVelocity_ = Vec3{};
