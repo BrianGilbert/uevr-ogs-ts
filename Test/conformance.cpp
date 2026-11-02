@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <filesystem>
+#include <string>
 #include <fstream>
 #include <sstream>
 
@@ -162,6 +163,75 @@ int main(int argc, char** argv)
         BuildMotion(b, 6.5, { o });
         CheckVector(corpus, "motion-local-gravity-zero", FrameType::Motion,
                     b.Wrap(FrameType::Motion));
+    }
+    { // discovery-paged-p0 / -p1: one set in two pages of generation 3
+        ObjectDecl p0; p0.Name = "demo_car"; p0.RefPointName = "";
+        p0.TypeLabel = "conformance car";
+        p0.Channels = { { "engine.rpm", "rpm", "", 0, 0, false } };
+        BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
+                       CorpusEnvironment(), { p0 }, 3, 0, 2);
+        CheckVector(corpus, "discovery-paged-p0", FrameType::Discovery,
+                    b.Wrap(FrameType::Discovery));
+
+        ObjectDecl p1; p1.Name = "demo_car"; p1.NameOnly = true;
+        p1.Channels = { { "session.track", "", "", 0, 0, false, 1 },
+                        { "vehicle.speed", "m/s", "", 0, 0, false, 2 } };
+        SessionValue track; track.Id = 1;
+        track.Type = SessionValue::Kind::Text; track.Text = "Test Ring";
+        p1.Values = { track };
+        BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
+                       CorpusEnvironment(), { p1 }, 3, 1, 2);
+        CheckVector(corpus, "discovery-paged-p1", FrameType::Discovery,
+                    b.Wrap(FrameType::Discovery));
+    }
+    { // motion-parts-p0 / -p1: one tick of generation 3 in two parts
+        MotionObjectInput p0; p0.Name = "demo_car";
+        p0.Position = { 4, 0.5f, -1 }; p0.Orientation = { 0, 0, 0, 1 };
+        p0.Channels = { { 0, 4100.0 } };
+        BuildMotion(b, 7.75, { p0 }, 3, 0, 2);
+        CheckVector(corpus, "motion-parts-p0", FrameType::Motion,
+                    b.Wrap(FrameType::Motion));
+
+        MotionObjectInput p1; p1.Name = "demo_car"; p1.ChannelsOnly = true;
+        p1.Channels = { { 2, 12.5 } };
+        BuildMotion(b, 7.75, { p1 }, 3, 1, 2);
+        CheckVector(corpus, "motion-parts-p1", FrameType::Motion,
+                    b.Wrap(FrameType::Motion));
+    }
+    { // datagram budget: a 300-channel set pages, every page within budget
+        ObjectDecl big; big.Name = "sim_car"; big.TypeLabel = "Paging test car";
+        for (int i = 0; i < 300; i++)
+            big.Channels.push_back({ "sim.channel" + std::to_string(i), "m/s",
+                                     "Simulator channel with a realistic description",
+                                     0, 0, false });
+        SessionValue label; label.Type = SessionValue::Kind::Text; label.Text = "label";
+        big.Values = { label };
+        auto pages = PaginateDiscovery(1, 42, "paging-test", Environment{}, { big }, 4);
+        bool within = true;
+        for (const auto& d : pages) within = within && d.size() <= kDatagramBudget;
+        Check("budget: 300-channel discovery pages", pages.size() > 10);
+        Check("budget: every discovery page within 1,400 bytes", within);
+
+        ObjectDecl small; small.Name = "obj";
+        small.Channels = { { "engine.rpm", "rpm", "", 0, 0, false } };
+        auto one = PaginateDiscovery(1, 42, "paging-test", Environment{}, { small }, 0);
+        Check("budget: a small set stays one unpaged frame", one.size() == 1);
+
+        auto plan = PlanMotionParts(500, "sim_car");
+        size_t total = 0;
+        bool partsWithin = true;
+        for (size_t p = 0; p < plan.size(); p++)
+        {
+            total += plan[p].second;
+            MotionObjectInput o; o.Name = "sim_car"; o.ChannelsOnly = p > 0;
+            o.HasBodyDynamics = p == 0; o.HasLocalGravity = p == 0;
+            for (size_t i = 0; i < plan[p].second; i++)
+                o.Channels.push_back({ 0xFFFF, 3.4e38 });
+            BuildMotion(b, 1e300, { o }, 0xFFFFFFFFu, (uint16_t)p, (uint16_t)plan.size());
+            partsWithin = partsWithin && b.Wrap(FrameType::Motion).size() <= kDatagramBudget;
+        }
+        Check("budget: 500 values split into parts", plan.size() > 1 && total == 500);
+        Check("budget: every motion part within 1,400 bytes", partsWithin);
     }
 
     // ---- UE frame conversion ----

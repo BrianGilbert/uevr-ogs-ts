@@ -74,7 +74,9 @@ engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
 
 The tracked pawn's class name is surfaced automatically as the object's
 `typeLabel` in discovery (e.g. "BP_PlayerCharacter_C"), re-sent when
-possession changes; `objectName` stays the stable matching key.
+possession changes under a new discovery `generation` (the label is
+object identity; motion frames carry the generation too);
+`objectName` stays the stable matching key.
 
 ## Body dynamics on the wire
 

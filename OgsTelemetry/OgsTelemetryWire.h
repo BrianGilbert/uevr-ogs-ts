@@ -10,17 +10,27 @@
 //
 // Frames needing schema fields these input structs do not cover can use
 // the schema writers directly and encode them with wire::Encode.
+//
+// Every datagram stays within the standard's 1,400-byte budget
+// (implementation-udp.md § Datagram budget): PaginateDiscovery splits a
+// descriptor set into self-contained pages, PlanMotionParts splits a tick's
+// channel values into parts with the pose in part 0.
 #pragma once
 #include "OgsTelemetrySchema.h"
 #include <cmath>
 #include <cstdint>
+#include <stdexcept>
 #include <string>
+#include <utility>
 #include <vector>
 
 namespace ogs::telemetry
 {
 
 enum class FrameType : uint8_t { Discovery = 0, Motion = 1, Event = 2 };
+
+/// Datagram budget (implementation-udp.md): bytes per datagram, envelope included.
+constexpr size_t kDatagramBudget = 1400;
 
 struct Vec3 { float X = 0, Y = 0, Z = 0; };
 struct Quat { float X = 0, Y = 0, Z = 0, W = 1; };
@@ -57,6 +67,16 @@ struct ChannelDecl
 {
     std::string Name, Unit, Description;
     double Min = 0, Max = 0; bool HasRange = false;
+    int32_t Id = -1; // -1 = its position in the object's channel list
+};
+
+/// A session-scoped channel value carried in discovery `values`.
+struct SessionValue
+{
+    enum class Kind : uint8_t { Number, Boolean, Text };
+    uint16_t Id = 0;
+    Kind Type = Kind::Number;
+    double Number = 0; bool Boolean = false; std::string Text;
 };
 
 struct ChannelValueInput
@@ -79,6 +99,9 @@ struct MotionObjectInput
                           // pulls; per frame (CONVENTIONS C-12)
     bool HasLocalGravity = false;
     std::vector<ChannelValueInput> Channels;
+    /// A later motion part listing the object: name and channel values
+    /// only — pose, dynamics and local gravity are left default.
+    bool ChannelsOnly = false;
 };
 
 struct ObjectDecl
@@ -89,7 +112,11 @@ struct ObjectDecl
                          // real classes: 0 other, 1 vehicle, 2 aircraft,
                          // 3 watercraft, 4 spacecraft, 5 humanoid, 6 camera,
                          // 7 creature
-    std::vector<ChannelDecl> Channels; // ids are assigned by position
+    std::vector<ChannelDecl> Channels; // ids by position unless ChannelDecl::Id is set
+    std::vector<SessionValue> Values;  // session-scoped values (discovery `values`)
+    /// A later discovery page listing the object: name, channels and
+    /// values only — its identity rides the first page listing it.
+    bool NameOnly = false;
 };
 
 struct EventInput
@@ -140,12 +167,17 @@ inline void SetVec3(schema::Vector3& out, Vec3 v)
 inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
                            int64_t sessionUnixUs, const std::string& gameName,
                            const Environment& env,
-                           const std::vector<ObjectDecl>& objects)
+                           const std::vector<ObjectDecl>& objects,
+                           uint32_t generation = 0, uint16_t page = 0,
+                           uint16_t pageCount = 0)
 {
     schema::DiscoveryFrame d;
     d.SetSchemaVersion(schemaVersion);
     d.SetGameName(gameName);
     d.SetSessionStartUnixUs(sessionUnixUs);
+    d.SetGeneration(generation);
+    d.SetPage(page);
+    d.SetPageCount(pageCount);
     schema::Environment& e = d.Environment();
     e.SetAirDensity(env.AirDensity); e.SetTemperature(env.Temperature);
     e.SetPressure(env.Pressure); e.SetGravity(env.Gravity);
@@ -155,16 +187,19 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
     {
         schema::ObjectDescriptor& od = d.AddObjects();
         od.SetName(o.Name);
-        od.SetType((schema::ObjectType)o.Type);
-        od.SetLocation(o.Location);
-        od.SetTypeLabel(o.TypeLabel);
-        od.SetPrimary(o.Primary);
-        od.ReferencePoint().SetName(o.RefPointName);
+        if (!o.NameOnly)
+        {
+            od.SetType((schema::ObjectType)o.Type);
+            od.SetLocation(o.Location);
+            od.SetTypeLabel(o.TypeLabel);
+            od.SetPrimary(o.Primary);
+            od.ReferencePoint().SetName(o.RefPointName);
+        }
         for (size_t i = 0; i < o.Channels.size(); i++)
         {
             const ChannelDecl& c = o.Channels[i];
             schema::ChannelDescriptor& cd = od.AddChannels();
-            cd.SetId((uint16_t)i);
+            cd.SetId(c.Id >= 0 ? (uint16_t)c.Id : (uint16_t)i);
             cd.SetName(c.Name);
             cd.SetUnit(c.Unit);
             cd.SetDescription(c.Description);
@@ -174,19 +209,43 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
                 r.SetMin(c.Min); r.SetMax(c.Max);
             }
         }
+        for (const SessionValue& v : o.Values)
+        {
+            schema::ChannelValue& cv = od.AddValues();
+            cv.SetId(v.Id);
+            if (v.Type == SessionValue::Kind::Text) cv.SetText(v.Text);
+            else if (v.Type == SessionValue::Kind::Boolean) cv.SetBoolean(v.Boolean);
+            else cv.SetNumber((float)v.Number);
+        }
     }
     b.W = wire::Encode(d);
 }
 
 inline void BuildMotion(WireBuilder& b, double timestamp,
-                        const std::vector<MotionObjectInput>& objects)
+                        const std::vector<MotionObjectInput>& objects,
+                        uint32_t generation = 0, uint16_t part = 0,
+                        uint16_t partCount = 0)
 {
     schema::MotionFrame m;
     m.SetTimestamp(timestamp);
+    m.SetGeneration(generation);
+    m.SetPart(part);
+    m.SetPartCount(partCount);
     for (const MotionObjectInput& o : objects)
     {
         schema::MotionObject& mo = m.AddObjects();
         mo.SetName(o.Name);
+        if (o.ChannelsOnly)
+        {
+            for (const ChannelValueInput& c : o.Channels)
+            {
+                schema::ChannelValue& cv = mo.AddChannels();
+                cv.SetId(c.Id);
+                if (c.IsBool) cv.SetBoolean(c.Boolean);
+                else cv.SetNumber((float)c.Number);
+            }
+            continue;
+        }
         SetVec3(mo.Position(), o.Position);
         schema::Quaternion& q = mo.Orientation();
         q.SetX(o.Orientation.X); q.SetY(o.Orientation.Y);
@@ -207,6 +266,131 @@ inline void BuildMotion(WireBuilder& b, double timestamp,
         }
     }
     b.W = wire::Encode(m);
+}
+
+// ---- datagram budget ----
+
+/// Splits a descriptor set into discovery pages within the datagram budget
+/// (implementation-udp.md § Paged discovery), measuring candidates with the
+/// canonical encoder. An object's identity rides the first page listing it;
+/// its channels follow, spilling onto pages that list it by name only; its
+/// session values start on a page of their own. A set that fits one
+/// datagram is a single unpaged frame. Returns the encoded datagrams.
+/// Throws std::length_error when a single entry alone exceeds the budget.
+inline std::vector<std::vector<uint8_t>> PaginateDiscovery(
+    uint16_t schemaVersion, int64_t sessionUnixUs, const std::string& gameName,
+    const Environment& env, const std::vector<ObjectDecl>& objects,
+    uint32_t generation, size_t budget = kDatagramBudget)
+{
+    std::vector<std::vector<ObjectDecl>> pages(1);
+    WireBuilder b;
+    auto fits = [&](const std::vector<ObjectDecl>& page) {
+        // measured as paged: the page fields are part of the size
+        BuildDiscovery(b, schemaVersion, sessionUnixUs, gameName, env, page,
+                       generation, (uint16_t)pages.size(), 0xFFFF);
+        return b.Wrap(FrameType::Discovery).size() <= budget;
+    };
+    auto continuation = [](const ObjectDecl& o) {
+        ObjectDecl c; c.Name = o.Name; c.NameOnly = true; c.RefPointName = "";
+        return c;
+    };
+    auto tooBig = [](const std::string& what) {
+        throw std::length_error(what + " alone exceeds the datagram budget");
+    };
+
+    for (const ObjectDecl& source : objects)
+    {
+        ObjectDecl identity = source;
+        identity.Channels.clear(); identity.Values.clear();
+        pages.back().push_back(identity);
+        if (!fits(pages.back()))
+        {
+            pages.back().pop_back();
+            if (pages.back().empty()) tooBig("object '" + source.Name + "' identity");
+            pages.emplace_back();
+            pages.back().push_back(identity);
+            if (!fits(pages.back())) tooBig("object '" + source.Name + "' identity");
+        }
+        for (size_t i = 0; i < source.Channels.size(); i++)
+        {
+            ChannelDecl c = source.Channels[i];
+            if (c.Id < 0) c.Id = (int32_t)i;
+            pages.back().back().Channels.push_back(c);
+            if (fits(pages.back())) continue;
+            pages.back().back().Channels.pop_back();
+            pages.emplace_back();
+            pages.back().push_back(continuation(source));
+            pages.back().back().Channels.push_back(c);
+            if (!fits(pages.back())) tooBig("channel '" + c.Name + "'");
+        }
+        if (!source.Values.empty())
+        {
+            // session values ride their own page(s)
+            const ObjectDecl& last = pages.back().back();
+            bool bare = pages.back().size() == 1 && last.NameOnly && last.Channels.empty();
+            if (!bare)
+            {
+                pages.emplace_back();
+                pages.back().push_back(continuation(source));
+            }
+            for (const SessionValue& v : source.Values)
+            {
+                pages.back().back().Values.push_back(v);
+                if (fits(pages.back())) continue;
+                pages.back().back().Values.pop_back();
+                pages.emplace_back();
+                pages.back().push_back(continuation(source));
+                pages.back().back().Values.push_back(v);
+                if (!fits(pages.back())) tooBig("session value");
+            }
+        }
+    }
+
+    const bool paged = pages.size() > 1;
+    std::vector<std::vector<uint8_t>> datagrams;
+    for (size_t i = 0; i < pages.size(); i++)
+    {
+        BuildDiscovery(b, schemaVersion, sessionUnixUs, gameName, env, pages[i], generation,
+                       paged ? (uint16_t)i : 0, paged ? (uint16_t)pages.size() : 0);
+        datagrams.push_back(b.Wrap(FrameType::Discovery));
+    }
+    return datagrams;
+}
+
+/// Bytes one number or boolean channel value adds to a motion frame.
+constexpr size_t kBytesPerChannelValue = 16;
+
+/// Plans how `valueCount` channel values split into motion parts within the
+/// budget (implementation-udp.md § Motion parts): (start, count) per part.
+/// Part 0 carries the pose; sizes are measured with the largest variants
+/// (body dynamics and local gravity selected), so the plan holds every tick.
+inline std::vector<std::pair<size_t, size_t>> PlanMotionParts(
+    size_t valueCount, const std::string& objectName, size_t budget = kDatagramBudget)
+{
+    std::vector<std::pair<size_t, size_t>> plan;
+    if (valueCount == 0) { plan.push_back({ 0, 0 }); return plan; }
+    WireBuilder b;
+    auto capacity = [&](bool part0) {
+        MotionObjectInput o; o.Name = objectName;
+        o.ChannelsOnly = !part0;
+        o.HasBodyDynamics = part0; o.SpecificForce = { 1, 1, 1 };
+        o.HasLocalGravity = part0; o.LocalGravity = { 1, 1, 1 };
+        o.Channels = { ChannelValueInput{ 0xFFFF, 1.0 } };
+        BuildMotion(b, 1.0, { o }, 0xFFFFFFFFu, 1, 0xFFFF);
+        size_t one = b.Wrap(FrameType::Motion).size();
+        if (one > budget) throw std::length_error("a motion part with one value exceeds the datagram budget");
+        return 1 + (budget - one) / kBytesPerChannelValue;
+    };
+    size_t first = capacity(true), later = capacity(false);
+    size_t start = first < valueCount ? first : valueCount;
+    plan.push_back({ 0, start });
+    while (start < valueCount)
+    {
+        size_t count = later < valueCount - start ? later : valueCount - start;
+        plan.push_back({ start, count });
+        start += count;
+    }
+    return plan;
 }
 
 inline void BuildEventFrame(WireBuilder& b, double timestamp,

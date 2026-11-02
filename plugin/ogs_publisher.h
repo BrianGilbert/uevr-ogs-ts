@@ -51,10 +51,15 @@ public:
     /// Updates the tracked object's discovery typeLabel (e.g. the pawn
     /// class name an injected mod is following). The object NAME stays
     /// stable — receivers match motion to discovery by it — while the
-    /// label shows what is actually being tracked; a changed label forces
-    /// the next discovery re-send per the standard's re-send-on-change
-    /// rule. Input is stripped by StripInstanceSuffix first.
+    /// label shows what is actually being tracked. The label is object
+    /// identity, so a change once discovery has gone out starts a new
+    /// generation (implementation-udp.md § Paged discovery) and re-sends
+    /// discovery at the next tick. Input is stripped by
+    /// StripInstanceSuffix first.
     void set_type_label(const char* label);
+
+    /// Descriptor-set generation carried by discovery and motion frames.
+    uint32_t generation() const { return generation_; }
 
     /// Reports the game's pause state on the ratified session.paused
     /// channel (standard CONVENTIONS C-11). Keep ticking while paused:
@@ -101,6 +106,8 @@ private:
     bool paused_ = false, wasPaused_ = false;
     PublisherConfig cfg_;
     std::string typeLabel_;
+    uint32_t generation_ = 0;
+    bool discoverySent_ = false;
     double clock_ = 0.0, lastDiscovery_ = -1e18, lastMotion_ = -1e18;
     int64_t sessionUs_ = 0;
 };

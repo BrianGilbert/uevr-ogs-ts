@@ -555,7 +555,7 @@ public:
 class DiscoveryFrame final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    DiscoveryFrame() : Struct(2, 3)
+    DiscoveryFrame() : Struct(3, 3)
     {
         WireSetText(0, std::string());
         WireEmplace<::ogs::telemetry::schema::Environment>(1);
@@ -578,6 +578,15 @@ public:
     size_t ObjectsCount() const { return WirePtrs[2].List.size(); }
     ::ogs::telemetry::schema::ObjectDescriptor& Objects(size_t i) { return static_cast<::ogs::telemetry::schema::ObjectDescriptor&>(*WirePtrs[2].List[i]); }
     void ClearObjects() { WirePtrs[2].List.clear(); }
+
+    uint32_t Generation() const { return (uint32_t)WireReadBits(32, 32); }
+    void SetGeneration(uint32_t v) { WireWriteBits(32, 32, v); }
+
+    uint16_t Page() const { return (uint16_t)WireReadBits(16, 16); }
+    void SetPage(uint16_t v) { WireWriteBits(16, 16, v); }
+
+    uint16_t PageCount() const { return (uint16_t)WireReadBits(128, 16); }
+    void SetPageCount(uint16_t v) { WireWriteBits(128, 16, v); }
 };
 
 class Kinematics final : public ::ogs::telemetry::wire::Struct
@@ -1125,7 +1134,7 @@ private:
 class MotionFrame final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    MotionFrame() : Struct(1, 1)
+    MotionFrame() : Struct(2, 1)
     {
     }
 
@@ -1137,6 +1146,15 @@ public:
     size_t ObjectsCount() const { return WirePtrs[0].List.size(); }
     ::ogs::telemetry::schema::MotionObject& Objects(size_t i) { return static_cast<::ogs::telemetry::schema::MotionObject&>(*WirePtrs[0].List[i]); }
     void ClearObjects() { WirePtrs[0].List.clear(); }
+
+    uint32_t Generation() const { return (uint32_t)WireReadBits(64, 32); }
+    void SetGeneration(uint32_t v) { WireWriteBits(64, 32, v); }
+
+    uint16_t Part() const { return (uint16_t)WireReadBits(96, 16); }
+    void SetPart(uint16_t v) { WireWriteBits(96, 16, v); }
+
+    uint16_t PartCount() const { return (uint16_t)WireReadBits(112, 16); }
+    void SetPartCount(uint16_t v) { WireWriteBits(112, 16, v); }
 };
 
 class Event final : public ::ogs::telemetry::wire::Struct

@@ -23,7 +23,9 @@ void Publisher::set_type_label(const char* label)
     if (s != typeLabel_)
     {
         typeLabel_ = std::move(s);
-        lastDiscovery_ = -1e18; // force discovery re-send on the next tick
+        // object identity changed: a new generation, re-sent at the next tick
+        if (discoverySent_) generation_++;
+        lastDiscovery_ = -1e18;
     }
 }
 
@@ -119,8 +121,12 @@ void Publisher::sendDiscovery()
     // declare the gravity the derivation actually uses, so consumers
     // scaling tilt cues (deg/g) divide by the sender's real value
     env.Gravity = BodyDynamicsDeriver::Gravity;
-    BuildDiscovery(wire_, 1, sessionUs_, cfg_.gameName, env, { obj });
-    send(FrameType::Discovery, wire_.Wrap(FrameType::Discovery));
+    // the one-channel set fits a single datagram; the pager keeps every
+    // datagram within the 1,400-byte budget regardless
+    for (const auto& page : PaginateDiscovery(1, sessionUs_, cfg_.gameName, env,
+                                              { obj }, generation_))
+        send(FrameType::Discovery, page);
+    discoverySent_ = true;
 }
 
 void Publisher::sendMotion(const Vec3& posStdM, const Quat& stdQ)
@@ -141,7 +147,7 @@ void Publisher::sendMotion(const Vec3& posStdM, const Quat& stdQ)
         o.AngularVelocity = deriver_.AngularVelocity;
     }
     wire_.W.clear();
-    BuildMotion(wire_, clock_, { o });
+    BuildMotion(wire_, clock_, { o }, generation_);
     send(FrameType::Motion, wire_.Wrap(FrameType::Motion));
 }
 
