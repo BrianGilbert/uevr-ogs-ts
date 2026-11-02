@@ -68,6 +68,16 @@ struct ChannelDecl
     std::string Name, Unit, Description;
     double Min = 0, Max = 0; bool HasRange = false;
     int32_t Id = -1; // -1 = its position in the object's channel list
+    // the ChannelValue variant this channel uses; Unspecified = undeclared
+    schema::ChannelType Type = schema::ChannelType::Unspecified;
+};
+
+/// Sender instance identity for receivers' session pickers and pinned
+/// choices (implementation-udp.md § Senders and sessions); both optional.
+struct Instance
+{
+    std::string Label; // user-set, e.g. "Rig 2"
+    std::string Host;  // this machine's host name
 };
 
 /// A session-scoped channel value carried in discovery `values`.
@@ -169,12 +179,14 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
                            const Environment& env,
                            const std::vector<ObjectDecl>& objects,
                            uint32_t generation = 0, uint16_t page = 0,
-                           uint16_t pageCount = 0)
+                           uint16_t pageCount = 0, const Instance& instance = {})
 {
     schema::DiscoveryFrame d;
     d.SetSchemaVersion(schemaVersion);
     d.SetGameName(gameName);
     d.SetSessionStartUnixUs(sessionUnixUs);
+    d.SetInstanceLabel(instance.Label);
+    d.SetHost(instance.Host);
     d.SetGeneration(generation);
     d.SetPage(page);
     d.SetPageCount(pageCount);
@@ -203,6 +215,7 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
             cd.SetName(c.Name);
             cd.SetUnit(c.Unit);
             cd.SetDescription(c.Description);
+            cd.SetType(c.Type);
             if (c.HasRange)
             {
                 schema::Range& r = cd.InitRange();
@@ -280,14 +293,14 @@ inline void BuildMotion(WireBuilder& b, double timestamp,
 inline std::vector<std::vector<uint8_t>> PaginateDiscovery(
     uint16_t schemaVersion, int64_t sessionUnixUs, const std::string& gameName,
     const Environment& env, const std::vector<ObjectDecl>& objects,
-    uint32_t generation, size_t budget = kDatagramBudget)
+    uint32_t generation, size_t budget = kDatagramBudget, const Instance& instance = {})
 {
     std::vector<std::vector<ObjectDecl>> pages(1);
     WireBuilder b;
     auto fits = [&](const std::vector<ObjectDecl>& page) {
         // measured as paged: the page fields are part of the size
         BuildDiscovery(b, schemaVersion, sessionUnixUs, gameName, env, page,
-                       generation, (uint16_t)pages.size(), 0xFFFF);
+                       generation, (uint16_t)pages.size(), 0xFFFF, instance);
         return b.Wrap(FrameType::Discovery).size() <= budget;
     };
     auto continuation = [](const ObjectDecl& o) {
@@ -351,7 +364,7 @@ inline std::vector<std::vector<uint8_t>> PaginateDiscovery(
     for (size_t i = 0; i < pages.size(); i++)
     {
         BuildDiscovery(b, schemaVersion, sessionUnixUs, gameName, env, pages[i], generation,
-                       paged ? (uint16_t)i : 0, paged ? (uint16_t)pages.size() : 0);
+                       paged ? (uint16_t)i : 0, paged ? (uint16_t)pages.size() : 0, instance);
         datagrams.push_back(b.Wrap(FrameType::Discovery));
     }
     return datagrams;

@@ -77,6 +77,14 @@ enum class ContactMedium : uint16_t
 
 
 
+enum class ChannelType : uint16_t
+{
+    Unspecified = 0,
+    Number = 1,
+    Boolean = 2,
+    Text = 3,
+};
+
 
 
 
@@ -450,6 +458,9 @@ public:
     const std::string& Description() const { return WirePtrs[3].Text; }
     void SetDescription(std::string v) { WireSetText(3, std::move(v)); }
 
+    ::ogs::telemetry::schema::ChannelType Type() const { return (::ogs::telemetry::schema::ChannelType)WireReadBits(32, 16); }
+    void SetType(::ogs::telemetry::schema::ChannelType v) { WireWriteBits(32, 16, (uint16_t)v); }
+
 private:
     void Select(Variant v)
     {
@@ -555,10 +566,12 @@ public:
 class DiscoveryFrame final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    DiscoveryFrame() : Struct(3, 3)
+    DiscoveryFrame() : Struct(3, 5)
     {
         WireSetText(0, std::string());
         WireEmplace<::ogs::telemetry::schema::Environment>(1);
+        WireSetText(3, std::string());
+        WireSetText(4, std::string());
     }
 
     uint16_t SchemaVersion() const { return (uint16_t)WireReadBits(0, 16); }
@@ -587,6 +600,12 @@ public:
 
     uint16_t PageCount() const { return (uint16_t)WireReadBits(128, 16); }
     void SetPageCount(uint16_t v) { WireWriteBits(128, 16, v); }
+
+    const std::string& InstanceLabel() const { return WirePtrs[3].Text; }
+    void SetInstanceLabel(std::string v) { WireSetText(3, std::move(v)); }
+
+    const std::string& Host() const { return WirePtrs[4].Text; }
+    void SetHost(std::string v) { WireSetText(4, std::move(v)); }
 };
 
 class Kinematics final : public ::ogs::telemetry::wire::Struct

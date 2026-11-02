@@ -83,9 +83,10 @@ int main(int argc, char** argv)
         ObjectDecl obj; obj.Name = "demo_car"; obj.RefPointName = "";
         obj.TypeLabel = "conformance car";
         obj.Channels = {
-            { "engine.rpm", "rpm", "Engine revolutions per minute", 0, 9000, true },
-            { "vehicle.speed", "m/s", "", 0, 30, true },
-            { "lights.headlights", "", "", 0, 0, false },
+            { "engine.rpm", "rpm", "Engine revolutions per minute", 0, 9000, true, -1,
+              schema::ChannelType::Number },
+            { "vehicle.speed", "m/s", "", 0, 30, true, -1, schema::ChannelType::Number },
+            { "lights.headlights", "", "", 0, 0, false, -1, schema::ChannelType::Boolean },
         };
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
                        CorpusEnvironment(), { obj });
@@ -167,21 +168,29 @@ int main(int argc, char** argv)
     { // discovery-paged-p0 / -p1: one set in two pages of generation 3
         ObjectDecl p0; p0.Name = "demo_car"; p0.RefPointName = "";
         p0.TypeLabel = "conformance car";
-        p0.Channels = { { "engine.rpm", "rpm", "", 0, 0, false } };
+        p0.Channels = { { "engine.rpm", "rpm", "", 0, 0, false, -1, schema::ChannelType::Number } };
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
                        CorpusEnvironment(), { p0 }, 3, 0, 2);
         CheckVector(corpus, "discovery-paged-p0", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
 
         ObjectDecl p1; p1.Name = "demo_car"; p1.NameOnly = true;
-        p1.Channels = { { "session.track", "", "", 0, 0, false, 1 },
-                        { "vehicle.speed", "m/s", "", 0, 0, false, 2 } };
+        p1.Channels = { { "session.track", "", "", 0, 0, false, 1, schema::ChannelType::Text },
+                        { "vehicle.speed", "m/s", "", 0, 0, false, 2, schema::ChannelType::Number } };
         SessionValue track; track.Id = 1;
         track.Type = SessionValue::Kind::Text; track.Text = "Test Ring";
         p1.Values = { track };
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
                        CorpusEnvironment(), { p1 }, 3, 1, 2);
         CheckVector(corpus, "discovery-paged-p1", FrameType::Discovery,
+                    b.Wrap(FrameType::Discovery));
+    }
+    { // discovery-identity: sender instance for session pickers
+        ObjectDecl obj; obj.Name = "obj"; obj.RefPointName = "";
+        obj.Type = 2; // aircraft
+        BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
+                       CorpusEnvironment(), { obj }, 0, 0, 0, Instance{ "Rig 2", "sim-pc" });
+        CheckVector(corpus, "discovery-identity", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }
     { // motion-parts-p0 / -p1: one tick of generation 3 in two parts
