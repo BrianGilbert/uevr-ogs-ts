@@ -116,6 +116,7 @@ void Publisher::sendDiscovery()
     ChannelDecl paused;
     paused.Name = "session.paused"; // ratified, C-11; id 0
     paused.Description = "Simulation paused for the player (C-11)";
+    paused.Type = schema::ChannelType::Boolean;
     obj.Channels.push_back(paused);
     Environment env{};
     // declare the gravity the derivation actually uses, so consumers
