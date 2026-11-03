@@ -139,9 +139,12 @@ struct EventInput
 
 struct Environment
 {
-    // standard atmosphere in the schema's SI units (kg/m^3, degC, Pa, m/s^2)
-    // and standard gravity, the value BodyDynamicsDeriver assumes by default
-    float AirDensity = 1.225f, Temperature = 20, Pressure = 101325, Gravity = 9.80665f;
+    // standard gravity, the value BodyDynamicsDeriver assumes by default
+    float Gravity = 9.80665f;
+    // atmosphere (kg/m^3, degC, Pa): declared only when HasAtmosphere —
+    // a game without an atmosphere model leaves it unset (noAtmosphere)
+    bool HasAtmosphere = false;
+    float AirDensity = 0, Temperature = 0, Pressure = 0;
     uint16_t Medium = 2; // ContactMedium ordinal; other holds 0 so the
                          // catch-all never interleaves with real mediums:
                          // 0 other, 1 air, 2 asphalt, 3 dirt, 4 grass,
@@ -191,8 +194,13 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
     d.SetPage(page);
     d.SetPageCount(pageCount);
     schema::Environment& e = d.Environment();
-    e.SetAirDensity(env.AirDensity); e.SetTemperature(env.Temperature);
-    e.SetPressure(env.Pressure); e.SetGravity(env.Gravity);
+    e.SetGravity(env.Gravity);
+    if (env.HasAtmosphere)
+    {
+        schema::Atmosphere& air = e.Atmosphere().InitKnown();
+        air.SetAirDensity(env.AirDensity); air.SetTemperature(env.Temperature);
+        air.SetPressure(env.Pressure);
+    }
     e.SetMedium((schema::ContactMedium)env.Medium);
     if (env.HasGravityVector) SetVec3(e.InitGravityVector(), env.GravityVector);
     for (const ObjectDecl& o : objects)

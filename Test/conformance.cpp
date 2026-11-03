@@ -46,6 +46,7 @@ static std::vector<uint8_t> HexToBytes(const std::filesystem::path& p)
 static Environment CorpusEnvironment()
 {
     Environment e;
+    e.HasAtmosphere = true;
     e.AirDensity = 1.25f; e.Temperature = 20; e.Pressure = 1; e.Gravity = 9.5f;
     e.Medium = 2; // asphalt
     return e;
@@ -188,8 +189,10 @@ int main(int argc, char** argv)
     { // discovery-identity: sender instance for session pickers
         ObjectDecl obj; obj.Name = "obj"; obj.RefPointName = "";
         obj.Type = 2; // aircraft
+        Environment noAir = CorpusEnvironment();
+        noAir.HasAtmosphere = false; // a game without an atmosphere model
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
-                       CorpusEnvironment(), { obj }, 0, 0, 0, Instance{ "Rig 2", "sim-pc" });
+                       noAir, { obj }, 0, 0, 0, Instance{ "Rig 2", "sim-pc" });
         CheckVector(corpus, "discovery-identity", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }
@@ -203,11 +206,113 @@ int main(int argc, char** argv)
         schema::DrivePoint& dp = mo.AddDrivePoints();
         dp.SetId(0);
         schema::WheelState& w = dp.InitWheel();
-        w.SetRpm(1200); w.SetSlip(0.0625f); w.SetCompression(0.03125f);
         w.SetContact(schema::ContactMedium::Asphalt);
-        w.Torque().SetValue(850);
+        w.Rpm().SetValue(1200); w.Slip().SetValue(0.0625f);
+        w.Compression().SetValue(0.03125f); w.Torque().SetValue(850);
         b.W = wire::Encode(m);
         CheckVector(corpus, "motion-wheel", FrameType::Motion, b.Wrap(FrameType::Motion));
+    }
+    { // motion-kinematics: world-space velocity and acceleration
+        schema::MotionFrame m;
+        m.SetTimestamp(9.5);
+        schema::MotionObject& mo = m.AddObjects();
+        mo.SetName("obj");
+        SetVec3(mo.Position(), { 1, 0.5f, -2 });
+        mo.Orientation().SetW(1);
+        schema::Kinematics& k = mo.InitKinematics();
+        SetVec3(k.Velocity(), { 0.5f, -0.25f, 12 });
+        SetVec3(k.Acceleration(), { 0.125f, 0, 2.5f });
+        b.W = wire::Encode(m);
+        CheckVector(corpus, "motion-kinematics", FrameType::Motion, b.Wrap(FrameType::Motion));
+    }
+    { // discovery-drivepoints: every descriptor variant, an untyped channel
+        schema::DiscoveryFrame d;
+        d.SetSchemaVersion(1);
+        d.SetGameName("conformance");
+        d.SetSessionStartUnixUs(1730000000000000LL);
+        schema::Environment& e = d.Environment();
+        e.SetGravity(9.5f);
+        e.SetMedium(schema::ContactMedium::Asphalt);
+        schema::Atmosphere& air = e.Atmosphere().InitKnown();
+        air.SetAirDensity(1.25f); air.SetTemperature(20); air.SetPressure(1);
+        schema::ObjectDescriptor& od = d.AddObjects();
+        od.SetName("obj");
+        od.SetType(schema::ObjectType::Vehicle);
+        od.SetPrimary(true);
+        schema::DrivePointDescriptor& wheel = od.AddDrivePoints();
+        wheel.SetId(0); wheel.SetName("wheel_fl");
+        SetVec3(wheel.Offset(), { -0.75f, -0.25f, 1.5f });
+        schema::WheelSpec& ws = wheel.InitWheel();
+        ws.SetRadius(0.3125f); ws.SetDriven(true); ws.SetSteered(true);
+        schema::SuspensionSpec& susp = ws.InitSuspension();
+        susp.Travel().SetMin(-0.0625); susp.Travel().SetMax(0.125);
+        susp.SetStiffness(65000); susp.SetDamping(5000);
+        schema::DrivePointDescriptor& prop = od.AddDrivePoints();
+        prop.SetId(1); prop.SetName("prop");
+        SetVec3(prop.Offset(), { 0, 0, 2 });
+        schema::PropellerSpec& ps = prop.InitPropeller();
+        ps.SetDiameter(1.875f); ps.SetBlades(3);
+        schema::DrivePointDescriptor& jet = od.AddDrivePoints();
+        jet.SetId(2); jet.SetName("jet");
+        SetVec3(jet.Offset(), { 0, 0, -3 });
+        jet.SetJet();
+        schema::DrivePointDescriptor& fan = od.AddDrivePoints();
+        fan.SetId(3); fan.SetName("fan");
+        SetVec3(fan.Offset(), { 0, 1, 0 });
+        fan.InitGeneric().SetRatedForce(1500);
+        schema::ChannelDescriptor& cd = od.AddChannels();
+        cd.SetId(0); cd.SetName("mod.value");
+        b.W = wire::Encode(d);
+        CheckVector(corpus, "discovery-drivepoints", FrameType::Discovery, b.Wrap(FrameType::Discovery));
+    }
+    { // motion-drivepoints: every state kind, a wheel measuring everything
+        schema::MotionFrame m;
+        m.SetTimestamp(10.25);
+        schema::MotionObject& mo = m.AddObjects();
+        mo.SetName("obj");
+        SetVec3(mo.Position(), { 3, 0, 0 });
+        mo.Orientation().SetW(1);
+        schema::DrivePoint& wp = mo.AddDrivePoints();
+        wp.SetId(0);
+        schema::WheelState& w = wp.InitWheel();
+        w.SetContact(schema::ContactMedium::Gravel);
+        w.Rpm().SetValue(900); w.Slip().SetValue(0.125f); w.Compression().SetValue(0.0625f);
+        w.SteerAngle().SetValue(0.25f); w.LoadForce().SetValue(4200);
+        w.DamperVelocity().SetValue(-0.5f); w.Torque().SetValue(300);
+        w.BrakePressure().SetValue(250000);
+        schema::TyreState& tyre = w.InitTyre();
+        tyre.SetPressure(180000); tyre.SetTemperature(85); tyre.SetWear(0.875f);
+        schema::DrivePoint& pp = mo.AddDrivePoints();
+        pp.SetId(1);
+        schema::PropellerState& p = pp.InitPropeller();
+        p.SetRpm(2400);
+        schema::PropellerExtended& pe = p.InitExtended();
+        pe.SetPitch(0.375f); pe.SetThrust(2000);
+        schema::DrivePoint& jp = mo.AddDrivePoints();
+        jp.SetId(2);
+        schema::JetState& j = jp.InitJet();
+        j.SetThrottle(0.75f); j.SetThrust(40000);
+        schema::DrivePoint& gp = mo.AddDrivePoints();
+        gp.SetId(3);
+        schema::GenericState& g = gp.InitGeneric();
+        g.SetEngaged(true);
+        SetVec3(g.InitForce(), { 0, 750, 0 });
+        b.W = wire::Encode(m);
+        CheckVector(corpus, "motion-drivepoints", FrameType::Motion, b.Wrap(FrameType::Motion));
+    }
+    { // motion-texts: a TextValue beside a number
+        schema::MotionFrame m;
+        m.SetTimestamp(11.5);
+        schema::MotionObject& mo = m.AddObjects();
+        mo.SetName("demo_car");
+        SetVec3(mo.Position(), { 1, 0, 0 });
+        mo.Orientation().SetW(1);
+        schema::ChannelValue& cv = mo.AddChannels();
+        cv.SetId(2); cv.SetNumber(12.5f);
+        schema::TextValue& tv = mo.AddTexts();
+        tv.SetId(1); tv.SetText("Pit lane");
+        b.W = wire::Encode(m);
+        CheckVector(corpus, "motion-texts", FrameType::Motion, b.Wrap(FrameType::Motion));
     }
     { // motion-parts-p0 / -p1: one tick of generation 3 in two parts
         MotionObjectInput p0; p0.Name = "demo_car";

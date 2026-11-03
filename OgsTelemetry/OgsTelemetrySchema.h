@@ -14,6 +14,7 @@ class Vector3;
 class Quaternion;
 class Range;
 class Environment;
+class Atmosphere;
 class DiscoveryFrame;
 class ObjectDescriptor;
 class NamedPoint;
@@ -30,7 +31,7 @@ class Kinematics;
 class BodyDynamics;
 class DrivePoint;
 class WheelState;
-class WheelExtended;
+class TyreState;
 class PropellerState;
 class PropellerExtended;
 class JetState;
@@ -72,6 +73,7 @@ enum class ContactMedium : uint16_t
     Ice = 9,
     Vacuum = 10,
 };
+
 
 
 
@@ -161,20 +163,12 @@ public:
     void SetMax(double v) { WireWriteFloat64(64, v); }
 };
 
-class Environment final : public ::ogs::telemetry::wire::Struct
+class Atmosphere final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    enum class Variant : uint16_t
-    {
-        NoGravityVector = 0,
-        GravityVector = 1,
-    };
-
-    Environment() : Struct(3, 1)
+    Atmosphere() : Struct(2, 0)
     {
     }
-
-    Variant Which() const { return (Variant)WireReadBits(144, 16); }
 
     float AirDensity() const { return WireReadFloat32(0); }
     void SetAirDensity(float v) { WireWriteFloat32(0, v); }
@@ -184,12 +178,28 @@ public:
 
     float Pressure() const { return WireReadFloat32(64); }
     void SetPressure(float v) { WireWriteFloat32(64, v); }
+};
 
-    float Gravity() const { return WireReadFloat32(96); }
-    void SetGravity(float v) { WireWriteFloat32(96, v); }
+class Environment final : public ::ogs::telemetry::wire::Struct
+{
+public:
+    enum class Variant : uint16_t
+    {
+        NoGravityVector = 0,
+        GravityVector = 1,
+    };
 
-    ::ogs::telemetry::schema::ContactMedium Medium() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(128, 16); }
-    void SetMedium(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(128, 16, (uint16_t)v); }
+    Environment() : Struct(2, 2)
+    {
+    }
+
+    Variant Which() const { return (Variant)WireReadBits(48, 16); }
+
+    float Gravity() const { return WireReadFloat32(0); }
+    void SetGravity(float v) { WireWriteFloat32(0, v); }
+
+    ::ogs::telemetry::schema::ContactMedium Medium() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(32, 16); }
+    void SetMedium(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(32, 16, (uint16_t)v); }
 
     void SetNoGravityVector() { Select(Variant::NoGravityVector); }
 
@@ -203,12 +213,49 @@ public:
         return WireEmplace<::ogs::telemetry::schema::Vector3>(0);
     }
 
+    /// Named union `atmosphere`, a view over the Environment's storage.
+    class AtmosphereGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoAtmosphere = 0,
+            Known = 1,
+        };
+
+        explicit AtmosphereGroup(Environment& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(64, 16); }
+
+        void SetNoAtmosphere() { Select(Variant::NoAtmosphere); }
+
+        ::ogs::telemetry::schema::Atmosphere* GetKnown() { return Which() == Variant::Known ? static_cast<::ogs::telemetry::schema::Atmosphere*>(Self->WirePtrs[1].Child.get()) : nullptr; }
+        /// Selects `known`; returns its (existing or new) payload.
+        ::ogs::telemetry::schema::Atmosphere& InitKnown()
+        {
+            if (Which() == Variant::Known && Self->WirePtrs[1].Child)
+                return static_cast<::ogs::telemetry::schema::Atmosphere&>(*Self->WirePtrs[1].Child);
+            Select(Variant::Known);
+            return Self->WireEmplace<::ogs::telemetry::schema::Atmosphere>(1);
+        }
+
+    private:
+        Environment* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WirePtrs[1].Reset();
+            Self->WireWriteBits(64, 16, (uint16_t)v);
+        }
+    };
+    AtmosphereGroup Atmosphere() { return AtmosphereGroup(*this); }
+
 private:
     void Select(Variant v)
     {
         if (Which() == v) return;
         WirePtrs[0].Reset();
-        WireWriteBits(144, 16, (uint16_t)v);
+        WireWriteBits(48, 16, (uint16_t)v);
     }
 };
 
@@ -658,30 +705,21 @@ public:
     const ::ogs::telemetry::schema::Vector3& AngularVelocity() const { return static_cast<const ::ogs::telemetry::schema::Vector3&>(*WirePtrs[1].Child); }
 };
 
-class WheelExtended final : public ::ogs::telemetry::wire::Struct
+class TyreState final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    WheelExtended() : Struct(3, 0)
+    TyreState() : Struct(2, 0)
     {
     }
 
-    float SteerAngle() const { return WireReadFloat32(0); }
-    void SetSteerAngle(float v) { WireWriteFloat32(0, v); }
+    float Pressure() const { return WireReadFloat32(0); }
+    void SetPressure(float v) { WireWriteFloat32(0, v); }
 
-    float LoadForce() const { return WireReadFloat32(32); }
-    void SetLoadForce(float v) { WireWriteFloat32(32, v); }
+    float Temperature() const { return WireReadFloat32(32); }
+    void SetTemperature(float v) { WireWriteFloat32(32, v); }
 
-    float DamperVelocity() const { return WireReadFloat32(64); }
-    void SetDamperVelocity(float v) { WireWriteFloat32(64, v); }
-
-    float TyrePressure() const { return WireReadFloat32(96); }
-    void SetTyrePressure(float v) { WireWriteFloat32(96, v); }
-
-    float TyreTemp() const { return WireReadFloat32(128); }
-    void SetTyreTemp(float v) { WireWriteFloat32(128, v); }
-
-    float TyreWear() const { return WireReadFloat32(160); }
-    void SetTyreWear(float v) { WireWriteFloat32(160, v); }
+    float Wear() const { return WireReadFloat32(64); }
+    void SetWear(float v) { WireWriteFloat32(64, v); }
 };
 
 class WheelState final : public ::ogs::telemetry::wire::Struct
@@ -689,54 +727,105 @@ class WheelState final : public ::ogs::telemetry::wire::Struct
 public:
     enum class Variant : uint16_t
     {
-        Core = 0,
-        Extended = 1,
+        NoTyre = 0,
+        Tyre = 1,
     };
 
-    WheelState() : Struct(4, 1)
+    WheelState() : Struct(7, 1)
     {
     }
 
-    Variant Which() const { return (Variant)WireReadBits(112, 16); }
+    Variant Which() const { return (Variant)WireReadBits(16, 16); }
 
-    float Rpm() const { return WireReadFloat32(0); }
-    void SetRpm(float v) { WireWriteFloat32(0, v); }
+    ::ogs::telemetry::schema::ContactMedium Contact() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(0, 16); }
+    void SetContact(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(0, 16, (uint16_t)v); }
 
-    float Slip() const { return WireReadFloat32(32); }
-    void SetSlip(float v) { WireWriteFloat32(32, v); }
+    void SetNoTyre() { Select(Variant::NoTyre); }
 
-    float Compression() const { return WireReadFloat32(64); }
-    void SetCompression(float v) { WireWriteFloat32(64, v); }
-
-    ::ogs::telemetry::schema::ContactMedium Contact() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(96, 16); }
-    void SetContact(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(96, 16, (uint16_t)v); }
-
-    void SetCore() { Select(Variant::Core); }
-
-    ::ogs::telemetry::schema::WheelExtended* GetExtended() { return Which() == Variant::Extended ? static_cast<::ogs::telemetry::schema::WheelExtended*>(WirePtrs[0].Child.get()) : nullptr; }
-    /// Selects `extended`; returns its (existing or new) payload.
-    ::ogs::telemetry::schema::WheelExtended& InitExtended()
+    ::ogs::telemetry::schema::TyreState* GetTyre() { return Which() == Variant::Tyre ? static_cast<::ogs::telemetry::schema::TyreState*>(WirePtrs[0].Child.get()) : nullptr; }
+    /// Selects `tyre`; returns its (existing or new) payload.
+    ::ogs::telemetry::schema::TyreState& InitTyre()
     {
-        if (Which() == Variant::Extended && WirePtrs[0].Child)
-            return static_cast<::ogs::telemetry::schema::WheelExtended&>(*WirePtrs[0].Child);
-        Select(Variant::Extended);
-        return WireEmplace<::ogs::telemetry::schema::WheelExtended>(0);
+        if (Which() == Variant::Tyre && WirePtrs[0].Child)
+            return static_cast<::ogs::telemetry::schema::TyreState&>(*WirePtrs[0].Child);
+        Select(Variant::Tyre);
+        return WireEmplace<::ogs::telemetry::schema::TyreState>(0);
     }
 
-    /// Named union `torque`, a view over the WheelState's storage.
-    class TorqueGroup
+    /// Named union `rpm`, a view over the WheelState's storage.
+    class RpmGroup
     {
     public:
         enum class Variant : uint16_t
         {
-            NoTorque = 0,
+            NoRpm = 0,
             Value = 1,
         };
 
-        explicit TorqueGroup(WheelState& s) : Self(&s) {}
+        explicit RpmGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(32, 16); }
+
+        void SetNoRpm() { Select(Variant::NoRpm); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(64) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(64, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(64, 32, 0);
+            Self->WireWriteBits(32, 16, (uint16_t)v);
+        }
+    };
+    RpmGroup Rpm() { return RpmGroup(*this); }
+
+    /// Named union `slip`, a view over the WheelState's storage.
+    class SlipGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoSlip = 0,
+            Value = 1,
+        };
+
+        explicit SlipGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(48, 16); }
+
+        void SetNoSlip() { Select(Variant::NoSlip); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(96) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(96, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(96, 32, 0);
+            Self->WireWriteBits(48, 16, (uint16_t)v);
+        }
+    };
+    SlipGroup Slip() { return SlipGroup(*this); }
+
+    /// Named union `compression`, a view over the WheelState's storage.
+    class CompressionGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoCompression = 0,
+            Value = 1,
+        };
+
+        explicit CompressionGroup(WheelState& s) : Self(&s) {}
         Variant Which() const { return (Variant)Self->WireReadBits(128, 16); }
 
-        void SetNoTorque() { Select(Variant::NoTorque); }
+        void SetNoCompression() { Select(Variant::NoCompression); }
 
         float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(160) : float(); }
         void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(160, v); }
@@ -749,6 +838,126 @@ public:
             if (Which() == v) return;
             Self->WireWriteBits(160, 32, 0);
             Self->WireWriteBits(128, 16, (uint16_t)v);
+        }
+    };
+    CompressionGroup Compression() { return CompressionGroup(*this); }
+
+    /// Named union `steerAngle`, a view over the WheelState's storage.
+    class SteerAngleGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoSteerAngle = 0,
+            Value = 1,
+        };
+
+        explicit SteerAngleGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(144, 16); }
+
+        void SetNoSteerAngle() { Select(Variant::NoSteerAngle); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(192) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(192, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(192, 32, 0);
+            Self->WireWriteBits(144, 16, (uint16_t)v);
+        }
+    };
+    SteerAngleGroup SteerAngle() { return SteerAngleGroup(*this); }
+
+    /// Named union `loadForce`, a view over the WheelState's storage.
+    class LoadForceGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoLoadForce = 0,
+            Value = 1,
+        };
+
+        explicit LoadForceGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(224, 16); }
+
+        void SetNoLoadForce() { Select(Variant::NoLoadForce); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(256) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(256, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(256, 32, 0);
+            Self->WireWriteBits(224, 16, (uint16_t)v);
+        }
+    };
+    LoadForceGroup LoadForce() { return LoadForceGroup(*this); }
+
+    /// Named union `damperVelocity`, a view over the WheelState's storage.
+    class DamperVelocityGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoDamperVelocity = 0,
+            Value = 1,
+        };
+
+        explicit DamperVelocityGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(240, 16); }
+
+        void SetNoDamperVelocity() { Select(Variant::NoDamperVelocity); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(288) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(288, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(288, 32, 0);
+            Self->WireWriteBits(240, 16, (uint16_t)v);
+        }
+    };
+    DamperVelocityGroup DamperVelocity() { return DamperVelocityGroup(*this); }
+
+    /// Named union `torque`, a view over the WheelState's storage.
+    class TorqueGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoTorque = 0,
+            Value = 1,
+        };
+
+        explicit TorqueGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(320, 16); }
+
+        void SetNoTorque() { Select(Variant::NoTorque); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(352) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(352, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(352, 32, 0);
+            Self->WireWriteBits(320, 16, (uint16_t)v);
         }
     };
     TorqueGroup Torque() { return TorqueGroup(*this); }
@@ -764,12 +973,12 @@ public:
         };
 
         explicit BrakePressureGroup(WheelState& s) : Self(&s) {}
-        Variant Which() const { return (Variant)Self->WireReadBits(144, 16); }
+        Variant Which() const { return (Variant)Self->WireReadBits(336, 16); }
 
         void SetNoBrakePressure() { Select(Variant::NoBrakePressure); }
 
-        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(192) : float(); }
-        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(192, v); }
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(384) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(384, v); }
 
     private:
         WheelState* Self;
@@ -777,8 +986,8 @@ public:
         void Select(Variant v)
         {
             if (Which() == v) return;
-            Self->WireWriteBits(192, 32, 0);
-            Self->WireWriteBits(144, 16, (uint16_t)v);
+            Self->WireWriteBits(384, 32, 0);
+            Self->WireWriteBits(336, 16, (uint16_t)v);
         }
     };
     BrakePressureGroup BrakePressure() { return BrakePressureGroup(*this); }
@@ -788,7 +997,7 @@ private:
     {
         if (Which() == v) return;
         WirePtrs[0].Reset();
-        WireWriteBits(112, 16, (uint16_t)v);
+        WireWriteBits(16, 16, (uint16_t)v);
     }
 };
 
