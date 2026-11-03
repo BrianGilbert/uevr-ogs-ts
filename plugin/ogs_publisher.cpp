@@ -125,7 +125,8 @@ void Publisher::sendDiscovery()
     // the one-channel set fits a single datagram; the pager keeps every
     // datagram within the 1,400-byte budget regardless
     for (const auto& page : PaginateDiscovery(1, sessionUs_, cfg_.gameName, env,
-                                              { obj }, generation_))
+                                              { obj }, generation_, kDatagramBudget,
+                                              Instance{ "", "", (float)cfg_.motionHz }))
         send(FrameType::Discovery, page);
     discoverySent_ = true;
 }

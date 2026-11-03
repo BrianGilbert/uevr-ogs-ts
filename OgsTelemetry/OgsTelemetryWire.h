@@ -78,6 +78,7 @@ struct Instance
 {
     std::string Label; // user-set, e.g. "Rig 2"
     std::string Host;  // this machine's host name
+    float MotionRateHz = 0; // nominal motion frame rate; 0 = not declared
 };
 
 /// A session-scoped channel value carried in discovery `values`.
@@ -190,6 +191,7 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
     d.SetSessionStartUnixUs(sessionUnixUs);
     d.SetInstanceLabel(instance.Label);
     d.SetHost(instance.Host);
+    d.SetMotionRateHz(instance.MotionRateHz);
     d.SetGeneration(generation);
     d.SetPage(page);
     d.SetPageCount(pageCount);

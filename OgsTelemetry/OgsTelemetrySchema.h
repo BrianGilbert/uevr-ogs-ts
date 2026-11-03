@@ -671,6 +671,9 @@ public:
 
     const std::string& Host() const { return WirePtrs[4].Text; }
     void SetHost(std::string v) { WireSetText(4, std::move(v)); }
+
+    float MotionRateHz() const { return WireReadFloat32(160); }
+    void SetMotionRateHz(float v) { WireWriteFloat32(160, v); }
 };
 
 class Kinematics final : public ::ogs::telemetry::wire::Struct

@@ -192,7 +192,7 @@ int main(int argc, char** argv)
         Environment noAir = CorpusEnvironment();
         noAir.HasAtmosphere = false; // a game without an atmosphere model
         BuildDiscovery(b, 1, 1730000000000000LL, "conformance",
-                       noAir, { obj }, 0, 0, 0, Instance{ "Rig 2", "sim-pc" });
+                       noAir, { obj }, 0, 0, 0, Instance{ "Rig 2", "sim-pc", 60 });
         CheckVector(corpus, "discovery-identity", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }
