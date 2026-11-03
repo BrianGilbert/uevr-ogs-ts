@@ -224,10 +224,17 @@ inline void BuildDiscovery(WireBuilder& b, uint16_t schemaVersion,
         }
         for (const SessionValue& v : o.Values)
         {
+            if (v.Type == SessionValue::Kind::Text)
+            {
+                // text values ride the TextValue list (`texts`)
+                schema::TextValue& tv = od.AddTexts();
+                tv.SetId(v.Id);
+                tv.SetText(v.Text);
+                continue;
+            }
             schema::ChannelValue& cv = od.AddValues();
             cv.SetId(v.Id);
-            if (v.Type == SessionValue::Kind::Text) cv.SetText(v.Text);
-            else if (v.Type == SessionValue::Kind::Boolean) cv.SetBoolean(v.Boolean);
+            if (v.Type == SessionValue::Kind::Boolean) cv.SetBoolean(v.Boolean);
             else cv.SetNumber((float)v.Number);
         }
     }

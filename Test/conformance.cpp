@@ -193,6 +193,22 @@ int main(int argc, char** argv)
         CheckVector(corpus, "discovery-identity", FrameType::Discovery,
                     b.Wrap(FrameType::Discovery));
     }
+    { // motion-wheel: per-field optionality — torque measured, brake pressure absent
+        schema::MotionFrame m;
+        m.SetTimestamp(8.25);
+        schema::MotionObject& mo = m.AddObjects();
+        mo.SetName("obj");
+        SetVec3(mo.Position(), { 2, 0.5f, 1 });
+        mo.Orientation().SetW(1);
+        schema::DrivePoint& dp = mo.AddDrivePoints();
+        dp.SetId(0);
+        schema::WheelState& w = dp.InitWheel();
+        w.SetRpm(1200); w.SetSlip(0.0625f); w.SetCompression(0.03125f);
+        w.SetContact(schema::ContactMedium::Asphalt);
+        w.Torque().SetValue(850);
+        b.W = wire::Encode(m);
+        CheckVector(corpus, "motion-wheel", FrameType::Motion, b.Wrap(FrameType::Motion));
+    }
     { // motion-parts-p0 / -p1: one tick of generation 3 in two parts
         MotionObjectInput p0; p0.Name = "demo_car";
         p0.Position = { 4, 0.5f, -1 }; p0.Orientation = { 0, 0, 0, 1 };

@@ -39,6 +39,7 @@ class LegState;
 class GenericState;
 class WingState;
 class ChannelValue;
+class TextValue;
 class Event;
 class EventFrame;
 
@@ -84,6 +85,7 @@ enum class ChannelType : uint16_t
     Boolean = 2,
     Text = 3,
 };
+
 
 
 
@@ -477,10 +479,9 @@ public:
     {
         Number = 0,
         Boolean = 1,
-        Text = 2,
     };
 
-    ChannelValue() : Struct(1, 1)
+    ChannelValue() : Struct(1, 0)
     {
     }
 
@@ -495,24 +496,35 @@ public:
     bool Boolean() const { return Which() == Variant::Boolean ? WireReadBool(32) : bool(); }
     void SetBoolean(bool v) { Select(Variant::Boolean); WireWriteBool(32, v); }
 
-    const std::string* Text() const { return Which() == Variant::Text ? &WirePtrs[0].Text : nullptr; }
-    void SetText(std::string v) { Select(Variant::Text); WireSetText(0, std::move(v)); }
-
 private:
     void Select(Variant v)
     {
         if (Which() == v) return;
         WireWriteBits(32, 32, 0);
         WireWriteBits(32, 1, 0);
-        WirePtrs[0].Reset();
         WireWriteBits(16, 16, (uint16_t)v);
     }
+};
+
+class TextValue final : public ::ogs::telemetry::wire::Struct
+{
+public:
+    TextValue() : Struct(1, 1)
+    {
+        WireSetText(0, std::string());
+    }
+
+    uint16_t Id() const { return (uint16_t)WireReadBits(0, 16); }
+    void SetId(uint16_t v) { WireWriteBits(0, 16, v); }
+
+    const std::string& Text() const { return WirePtrs[0].Text; }
+    void SetText(std::string v) { WireSetText(0, std::move(v)); }
 };
 
 class ObjectDescriptor final : public ::ogs::telemetry::wire::Struct
 {
 public:
-    ObjectDescriptor() : Struct(1, 8)
+    ObjectDescriptor() : Struct(1, 9)
     {
         WireSetText(0, std::string());
         WireSetText(1, std::string());
@@ -561,6 +573,12 @@ public:
     size_t ValuesCount() const { return WirePtrs[7].List.size(); }
     ::ogs::telemetry::schema::ChannelValue& Values(size_t i) { return static_cast<::ogs::telemetry::schema::ChannelValue&>(*WirePtrs[7].List[i]); }
     void ClearValues() { WirePtrs[7].List.clear(); }
+
+    /// `texts`: written when non-empty, null when empty.
+    ::ogs::telemetry::schema::TextValue& AddTexts() { return WireAppend<::ogs::telemetry::schema::TextValue>(8); }
+    size_t TextsCount() const { return WirePtrs[8].List.size(); }
+    ::ogs::telemetry::schema::TextValue& Texts(size_t i) { return static_cast<::ogs::telemetry::schema::TextValue&>(*WirePtrs[8].List[i]); }
+    void ClearTexts() { WirePtrs[8].List.clear(); }
 };
 
 class DiscoveryFrame final : public ::ogs::telemetry::wire::Struct
@@ -675,29 +693,23 @@ public:
         Extended = 1,
     };
 
-    WheelState() : Struct(3, 1)
+    WheelState() : Struct(4, 1)
     {
     }
 
-    Variant Which() const { return (Variant)WireReadBits(176, 16); }
+    Variant Which() const { return (Variant)WireReadBits(112, 16); }
 
     float Rpm() const { return WireReadFloat32(0); }
     void SetRpm(float v) { WireWriteFloat32(0, v); }
 
-    float Torque() const { return WireReadFloat32(32); }
-    void SetTorque(float v) { WireWriteFloat32(32, v); }
+    float Slip() const { return WireReadFloat32(32); }
+    void SetSlip(float v) { WireWriteFloat32(32, v); }
 
-    float BrakePressure() const { return WireReadFloat32(64); }
-    void SetBrakePressure(float v) { WireWriteFloat32(64, v); }
+    float Compression() const { return WireReadFloat32(64); }
+    void SetCompression(float v) { WireWriteFloat32(64, v); }
 
-    float Slip() const { return WireReadFloat32(96); }
-    void SetSlip(float v) { WireWriteFloat32(96, v); }
-
-    float Compression() const { return WireReadFloat32(128); }
-    void SetCompression(float v) { WireWriteFloat32(128, v); }
-
-    ::ogs::telemetry::schema::ContactMedium Contact() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(160, 16); }
-    void SetContact(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(160, 16, (uint16_t)v); }
+    ::ogs::telemetry::schema::ContactMedium Contact() const { return (::ogs::telemetry::schema::ContactMedium)WireReadBits(96, 16); }
+    void SetContact(::ogs::telemetry::schema::ContactMedium v) { WireWriteBits(96, 16, (uint16_t)v); }
 
     void SetCore() { Select(Variant::Core); }
 
@@ -711,12 +723,72 @@ public:
         return WireEmplace<::ogs::telemetry::schema::WheelExtended>(0);
     }
 
+    /// Named union `torque`, a view over the WheelState's storage.
+    class TorqueGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoTorque = 0,
+            Value = 1,
+        };
+
+        explicit TorqueGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(128, 16); }
+
+        void SetNoTorque() { Select(Variant::NoTorque); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(160) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(160, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(160, 32, 0);
+            Self->WireWriteBits(128, 16, (uint16_t)v);
+        }
+    };
+    TorqueGroup Torque() { return TorqueGroup(*this); }
+
+    /// Named union `brakePressure`, a view over the WheelState's storage.
+    class BrakePressureGroup
+    {
+    public:
+        enum class Variant : uint16_t
+        {
+            NoBrakePressure = 0,
+            Value = 1,
+        };
+
+        explicit BrakePressureGroup(WheelState& s) : Self(&s) {}
+        Variant Which() const { return (Variant)Self->WireReadBits(144, 16); }
+
+        void SetNoBrakePressure() { Select(Variant::NoBrakePressure); }
+
+        float Value() const { return Which() == Variant::Value ? Self->WireReadFloat32(192) : float(); }
+        void SetValue(float v) { Select(Variant::Value); Self->WireWriteFloat32(192, v); }
+
+    private:
+        WheelState* Self;
+
+        void Select(Variant v)
+        {
+            if (Which() == v) return;
+            Self->WireWriteBits(192, 32, 0);
+            Self->WireWriteBits(144, 16, (uint16_t)v);
+        }
+    };
+    BrakePressureGroup BrakePressure() { return BrakePressureGroup(*this); }
+
 private:
     void Select(Variant v)
     {
         if (Which() == v) return;
         WirePtrs[0].Reset();
-        WireWriteBits(176, 16, (uint16_t)v);
+        WireWriteBits(112, 16, (uint16_t)v);
     }
 };
 
@@ -1052,7 +1124,7 @@ public:
         BodyDynamics = 2,
     };
 
-    MotionObject() : Struct(1, 7)
+    MotionObject() : Struct(1, 8)
     {
         WireSetText(0, std::string());
         WireEmplace<::ogs::telemetry::schema::Vector3>(1);
@@ -1103,6 +1175,12 @@ public:
     size_t ChannelsCount() const { return WirePtrs[5].List.size(); }
     ::ogs::telemetry::schema::ChannelValue& Channels(size_t i) { return static_cast<::ogs::telemetry::schema::ChannelValue&>(*WirePtrs[5].List[i]); }
     void ClearChannels() { WirePtrs[5].List.clear(); }
+
+    /// `texts`: written when non-empty, null when empty.
+    ::ogs::telemetry::schema::TextValue& AddTexts() { return WireAppend<::ogs::telemetry::schema::TextValue>(7); }
+    size_t TextsCount() const { return WirePtrs[7].List.size(); }
+    ::ogs::telemetry::schema::TextValue& Texts(size_t i) { return static_cast<::ogs::telemetry::schema::TextValue&>(*WirePtrs[7].List[i]); }
+    void ClearTexts() { WirePtrs[7].List.clear(); }
 
     /// Named union `localGravity`, a view over the MotionObject's storage.
     class LocalGravityGroup
