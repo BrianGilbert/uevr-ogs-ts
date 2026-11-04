@@ -29,6 +29,33 @@ void Publisher::set_type_label(const char* label)
     }
 }
 
+// Names the default route's interface rather than leaving the choice to the
+// OS, whose choice for a group moves to loopback once anything on this host has
+// sent to that group over loopback; the stream then stops leaving the machine
+// (implementation-udp.md § Network interfaces). Best-effort: with no default
+// route the OS chooses. Connecting a UDP socket only looks up the route; nothing
+// is sent. 192.0.2.1 is reserved for documentation (RFC 5737).
+static void SendOnDefaultRoute(SOCKET sock)
+{
+    SOCKET probe = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (probe == INVALID_SOCKET) return;
+    sockaddr_in remote{};
+    remote.sin_family = AF_INET;
+    remote.sin_port = htons(9);
+    inet_pton(AF_INET, "192.0.2.1", &remote.sin_addr);
+    sockaddr_in local{};
+    int length = sizeof local;
+    if (connect(probe, (const sockaddr*)&remote, sizeof remote) == 0
+        && getsockname(probe, (sockaddr*)&local, &length) == 0
+        && local.sin_addr.s_addr != htonl(INADDR_ANY)
+        && local.sin_addr.S_un.S_un_b.s_b1 != 127)
+    {
+        setsockopt(sock, IPPROTO_IP, IP_MULTICAST_IF,
+                   (const char*)&local.sin_addr, sizeof local.sin_addr);
+    }
+    closesocket(probe);
+}
+
 bool Publisher::start(const PublisherConfig& config)
 {
     cfg_ = config;
@@ -45,6 +72,7 @@ bool Publisher::start(const PublisherConfig& config)
     dst_.sin_family = AF_INET;
     dst_.sin_port = htons((u_short)cfg_.port);
     inet_pton(AF_INET, cfg_.group, &dst_.sin_addr);
+    if (IN_MULTICAST(ntohl(dst_.sin_addr.s_addr))) SendOnDefaultRoute(socket_);
 
     sessionUs_ = (int64_t)time(nullptr) * 1000000;
     return true;
