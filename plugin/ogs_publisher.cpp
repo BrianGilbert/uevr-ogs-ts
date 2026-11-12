@@ -115,10 +115,15 @@ void Publisher::tick(double dt, bool hasPose,
             if (wasPaused_) deriver_ = telemetry::BodyDynamicsDeriver{};
             deriver_.Sample(dt, std, stdQ, hasVel, vel);
         }
-        if (clock_ - lastMotion_ >= 1.0 / cfg_.motionHz)
+        // schedule by accumulation: advancing from the previous due time (not
+        // the late send time) keeps the long-run rate at motionHz whatever the
+        // host frame rate; a stall of more than one interval resyncs to now
+        const double interval = 1.0 / cfg_.motionHz;
+        const double due = lastMotion_ + interval;
+        if (clock_ >= due - 1e-6)
         {
             sendMotion(std, stdQ);
-            lastMotion_ = clock_;
+            lastMotion_ = (lastMotion_ < -1e17 || clock_ - due > interval) ? clock_ : due;
         }
     }
     else if (hadPose_)
