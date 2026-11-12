@@ -47,6 +47,9 @@ public:
     bool start(const PublisherConfig& config);
     void stop();
     bool started() const { return socket_ != INVALID_SOCKET; }
+    /// Datagrams the socket refused (interface down, no route). Telemetry is
+    /// lossy by design: a failed send is counted, never fatal.
+    int64_t sendFailures() const { return sendFailures_; }
 
     /// Updates the tracked object's discovery typeLabel (e.g. the pawn
     /// class name an injected mod is following). The object NAME stays
@@ -92,10 +95,11 @@ private:
     void sendMotion(const telemetry::Vec3& posStdM, const telemetry::Quat& stdQ);
     void send(const telemetry::FrameType type, const std::vector<uint8_t>& datagram)
     {
-        if (socket_ != INVALID_SOCKET_VALUE && !datagram.empty())
+        if (socket_ != INVALID_SOCKET_VALUE && !datagram.empty() &&
             ::sendto((SOCKET)socket_, (const char*)datagram.data(),
                      (int)datagram.size(), 0,
-                     (const sockaddr*)&dst_, sizeof dst_);
+                     (const sockaddr*)&dst_, sizeof dst_) == SOCKET_ERROR)
+            ++sendFailures_;
     }
 
     SOCKET socket_ = INVALID_SOCKET;
@@ -110,6 +114,7 @@ private:
     bool discoverySent_ = false;
     double clock_ = 0.0, lastDiscovery_ = -1e18, lastMotion_ = -1e18;
     int64_t sessionUs_ = 0;
+    int64_t sendFailures_ = 0;
 };
 
 /// Strips a UE instance-number suffix ("BP_Foo_C_3" -> "BP_Foo_C",
