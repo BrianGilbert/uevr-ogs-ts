@@ -441,4 +441,38 @@ inline void BuildEventFrame(WireBuilder& b, double timestamp,
     b.W = wire::Encode(f);
 }
 
+/// Splits an event burst into runs that each fit one datagram (implementation-udp.md
+/// § Event splitting): (start, count) pairs over `events`, each run the longest
+/// prefix of what remains that stays within `budget`, envelope included. Events
+/// are self-contained and receivers dedup by id, so the runs need no numbering.
+inline std::vector<std::pair<size_t, size_t>> PlanEventFrames(
+    const std::vector<EventInput>& events, double timestamp,
+    size_t budget = kDatagramBudget)
+{
+    auto fits = [&](size_t start, size_t count)
+    {
+        WireBuilder b;
+        BuildEventFrame(b, timestamp,
+            std::vector<EventInput>(events.begin() + (std::ptrdiff_t)start,
+                                    events.begin() + (std::ptrdiff_t)(start + count)));
+        return b.Wrap(FrameType::Event).size() <= budget;
+    };
+    std::vector<std::pair<size_t, size_t>> plan;
+    size_t start = 0;
+    while (start < events.size())
+    {
+        size_t lo = 1, hi = events.size() - start; // lo always fits
+        if (fits(start, hi)) lo = hi;
+        else
+            while (lo < hi)
+            {
+                const size_t mid = (lo + hi + 1) / 2;
+                if (fits(start, mid)) lo = mid; else hi = mid - 1;
+            }
+        plan.push_back({ start, lo });
+        start += lo;
+    }
+    return plan;
+}
+
 } // namespace ogs::telemetry

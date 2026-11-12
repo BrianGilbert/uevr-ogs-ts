@@ -118,6 +118,21 @@ struct BodyDynamicsDeriver
 
         const Vec3 displacement = Sub(position, prevPosition_);
         Vec3 velocity;
+        if (needsVelocitySeed_)
+        {
+            // the sample after a reset has no previous velocity to difference
+            // against (a zero would read as a jump from rest to v in one
+            // sample): seed it, keep the static force, and take the angular
+            // rate, which needs only orientation history
+            needsVelocitySeed_ = false;
+            prevVelocity_ = hasVelocity ? engineVelocity
+                                        : Scale(displacement, (float)(1.0 / dt));
+            AngularVelocity = AngularVelocityFromDelta(prevOrientation_, orientation, dt);
+            SpecificForce = RotateByInverse(orientation, Scale(GravityVector, -1.0f));
+            prevPosition_ = position;
+            prevOrientation_ = orientation;
+            return;
+        }
         if (hasVelocity)
         {
             // engine-measured velocity is authoritative: a move it cannot
@@ -178,6 +193,7 @@ struct BodyDynamicsDeriver
         prevOrientation_ = orientation;
         filteredAccel_ = Vec3{};
         hasHistory_ = true;
+        needsVelocitySeed_ = true;
         pendingTeleport_ = false;
     }
 
@@ -220,6 +236,7 @@ private:
     Vec3 prevPosition_{}, prevVelocity_{}, filteredAccel_{};
     Quat prevOrientation_{};
     bool hasHistory_ = false;
+    bool needsVelocitySeed_ = false; // next sample seeds prevVelocity_ instead of differencing
     bool pendingTeleport_ = false; // no-velocity path: one strike is accel onset, two is a teleport
 };
 
