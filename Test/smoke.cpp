@@ -190,8 +190,8 @@ int main()
         const auto fromEngine = peakSurge(true, 1.0f, 0.0f);
         std::printf("uneven stepping at constant speed: peak surge position=%.1f engine=%.2f\n",
                     fromPosition.first, fromEngine.first);
-        Check("uneven stepping: position deltas alone spike (the field symptom)",
-              fromPosition.first > 100.0f);
+        Check("uneven stepping: position alone stays quiet too",
+              fromPosition.first < 100.0f);
         Check("uneven stepping: engine velocity keeps surge quiet",
               fromEngine.first < 0.5f);
 

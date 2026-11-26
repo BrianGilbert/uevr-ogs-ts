@@ -531,8 +531,8 @@ int main(int argc, char** argv)
                 t += (float)dt;
             }
             d.Sample(dt, { 0, 0, t + 50.0f }, { 0, 0, 0, 1 }); // strike 1: jump
-            Check("deriver: teleport strike 1 derives a spike, not a reset",
-                  d.SpecificForce.Z > 1000.0f);
+            Check("deriver: teleport strike 1 is filtered out, not a spike or a reset",
+                  std::abs(d.SpecificForce.Z) < 1.0f);
             d.Sample(dt, { 0, 0, t }, { 0, 0, 0, 1 }); // strike 2: back on the normal path
             Check("deriver: teleport without velocity resets on sustained inconsistency",
                   std::abs(d.SpecificForce.Y - g) < 1e-3f &&

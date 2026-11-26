@@ -77,8 +77,13 @@ inline Vec3 Rotate(const Quat& q, const Vec3& v)
 // differentiated rates the same receiver would otherwise compute.
 //
 // Velocity may be supplied by the caller when the engine measures it
-// (UEVR GetVelocity); otherwise it is derived from position deltas.
-// Acceleration is low-pass filtered (τ = 0.1 s) to tame sampling jitter;
+// (UEVR GetVelocity); otherwise it is derived from positions: a velocity
+// is taken each time the position changes (or after StillAfterSeconds
+// without a change), over the time since the previous change, and
+// acceleration comes from the median of the last MedianSamples, so physics
+// steps that don't line up with the host's ticks don't read as
+// acceleration. Acceleration is low-pass filtered (τ = 0.1 s) to tame
+// sampling jitter;
 // angular velocity is NOT filtered (onset cues need its edges). Teleports
 // are detected as moves the best available velocity estimate cannot
 // explain (engine-measured velocity when supplied, else the previously
@@ -95,6 +100,9 @@ struct BodyDynamicsDeriver
     static constexpr float Gravity = 9.80665f;       // m/s²
     static constexpr double AccelFilterTau = 0.1;    // s
     static constexpr float TeleportThresholdMetres = 2.5f;
+    static constexpr int MedianSamples = 5;
+    static constexpr double StillAfterSeconds = 0.1;
+    static constexpr float SamePositionMetres = 1e-4f;
 
     Vec3 SpecificForce{};    // m/s², body frame, C-4 axes
     Vec3 AngularVelocity{};  // rad/s, body frame, C-4 axes
@@ -117,7 +125,6 @@ struct BodyDynamicsDeriver
         }
 
         const Vec3 displacement = Sub(position, prevPosition_);
-        Vec3 velocity;
         if (needsVelocitySeed_)
         {
             // the sample after a reset has no previous velocity to difference
@@ -127,48 +134,39 @@ struct BodyDynamicsDeriver
             needsVelocitySeed_ = false;
             prevVelocity_ = hasVelocity ? engineVelocity
                                         : Scale(displacement, (float)(1.0 / dt));
+            if (!hasVelocity) Remember(prevVelocity_);
+            lastNewPosition_ = position;
             AngularVelocity = AngularVelocityFromDelta(prevOrientation_, orientation, dt);
             SpecificForce = RotateByInverse(orientation, Scale(GravityVector, -1.0f));
             prevPosition_ = position;
             prevOrientation_ = orientation;
             return;
         }
+        Vec3 accel;
         if (hasVelocity)
         {
             // engine-measured velocity is authoritative: a move it cannot
             // explain (respawn, level change, floating-origin shift) is a
             // teleport, however fast the ship legitimately flies
-            velocity = engineVelocity;
-            const float expected = (float)dt * Len(engineVelocity);
-            const float inconsistency =
-                Len(Sub(displacement, Scale(engineVelocity, (float)dt)));
-            if (inconsistency > TeleportThresholdMetres + 0.5f * expected)
+            if (IsUnexplained(displacement, Scale(engineVelocity, (float)dt)))
             {
                 Reset(position, orientation);
                 return;
             }
+            accel = Scale(Sub(engineVelocity, prevVelocity_), (float)(1.0 / dt));
+            prevVelocity_ = engineVelocity;
+            ForgetPositionHistory(position);
         }
         else
         {
-            velocity = Scale(displacement, (float)(1.0 / dt));
-            const Vec3 expected = Scale(prevVelocity_, (float)dt);
-            const float inconsistency = Len(Sub(displacement, expected));
-            if (inconsistency > TeleportThresholdMetres + 0.5f * Len(expected))
+            if (!UpdateFromPosition(dt, position))
             {
-                // without a velocity measurement one inconsistent sample is
-                // acceleration onset (or the first sample after a reset);
-                // a sustained one is a teleport
-                if (pendingTeleport_)
-                {
-                    Reset(position, orientation);
-                    return;
-                }
-                pendingTeleport_ = true;
+                Reset(position, orientation);
+                return;
             }
-            else pendingTeleport_ = false;
+            accel = heldAccel_;
         }
 
-        const Vec3 accel = Scale(Sub(velocity, prevVelocity_), (float)(1.0 / dt));
         // one-pole low-pass: y += (x − y)·dt/τ, stable for any dt
         const double blend = dt / AccelFilterTau < 1.0 ? dt / AccelFilterTau : 1.0;
         filteredAccel_ = Add(filteredAccel_,
@@ -178,7 +176,6 @@ struct BodyDynamicsDeriver
         SpecificForce = RotateByInverse(orientation, Sub(filteredAccel_, GravityVector));
 
         prevPosition_ = position;
-        prevVelocity_ = velocity;
         prevOrientation_ = orientation;
     }
 
@@ -195,6 +192,7 @@ struct BodyDynamicsDeriver
         hasHistory_ = true;
         needsVelocitySeed_ = true;
         pendingTeleport_ = false;
+        ForgetPositionHistory(position);
     }
 
     /// Body-frame angular velocity (rad/s, C-4 component sense) from the
@@ -233,11 +231,82 @@ private:
     static float Len(const Vec3& v)
         { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); }
 
+    static bool IsUnexplained(const Vec3& moved, const Vec3& expected)
+        { return Len(Sub(moved, expected)) > TeleportThresholdMetres + 0.5f * Len(expected); }
+
+    bool UpdateFromPosition(double dt, const Vec3& position)
+    {
+        sinceNewPose_ += dt;
+        sinceMedian_ += dt;
+        const Vec3 moved = Sub(position, lastNewPosition_);
+        if (Len(moved) < SamePositionMetres && sinceNewPose_ < StillAfterSeconds)
+            return true;
+
+        const Vec3 usual = hasMedian_ ? median_ : prevVelocity_;
+        if (IsUnexplained(moved, Scale(usual, (float)sinceNewPose_)))
+        {
+            // without a velocity measurement one inconsistent sample is
+            // acceleration onset (or one jump, which the median drops);
+            // a sustained one is a teleport
+            if (pendingTeleport_) return false;
+            pendingTeleport_ = true;
+        }
+        else pendingTeleport_ = false;
+
+        prevVelocity_ = Scale(moved, (float)(1.0 / sinceNewPose_));
+        Remember(prevVelocity_);
+        lastNewPosition_ = position;
+        sinceNewPose_ = 0.0;
+        if (recentCount_ < MedianSamples) return true;
+
+        const Vec3 median{ MedianOf(0), MedianOf(1), MedianOf(2) };
+        if (hasMedian_)
+            heldAccel_ = Scale(Sub(median, median_), (float)(1.0 / sinceMedian_));
+        median_ = median;
+        hasMedian_ = true;
+        sinceMedian_ = 0.0;
+        return true;
+    }
+
+    void Remember(const Vec3& velocity)
+    {
+        recent_[recentNext_] = velocity;
+        recentNext_ = (recentNext_ + 1) % MedianSamples;
+        if (recentCount_ < MedianSamples) recentCount_++;
+    }
+
+    float MedianOf(int axis) const
+    {
+        float sorted[MedianSamples];
+        for (int i = 0; i < MedianSamples; i++)
+        {
+            const float v = axis == 0 ? recent_[i].X : axis == 1 ? recent_[i].Y : recent_[i].Z;
+            int at = i;
+            for (; at > 0 && sorted[at - 1] > v; at--) sorted[at] = sorted[at - 1];
+            sorted[at] = v;
+        }
+        return sorted[MedianSamples / 2];
+    }
+
+    void ForgetPositionHistory(const Vec3& position)
+    {
+        recentCount_ = recentNext_ = 0;
+        hasMedian_ = false;
+        heldAccel_ = Vec3{};
+        lastNewPosition_ = position;
+        sinceNewPose_ = sinceMedian_ = 0.0;
+    }
+
     Vec3 prevPosition_{}, prevVelocity_{}, filteredAccel_{};
     Quat prevOrientation_{};
     bool hasHistory_ = false;
     bool needsVelocitySeed_ = false; // next sample seeds prevVelocity_ instead of differencing
     bool pendingTeleport_ = false; // no-velocity path: one strike is accel onset, two is a teleport
+    Vec3 recent_[MedianSamples]{};
+    Vec3 lastNewPosition_{}, median_{}, heldAccel_{};
+    int recentCount_ = 0, recentNext_ = 0;
+    double sinceNewPose_ = 0.0, sinceMedian_ = 0.0;
+    bool hasMedian_ = false;
 };
 
 } // namespace ogs::telemetry
