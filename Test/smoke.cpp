@@ -259,22 +259,90 @@ int main()
         Check("a briefly frozen pose keeps engine velocity", kept);
         Check("a briefly frozen pose causes no surge spike", peak < 0.5f);
 
-        auto rejectedAt = [&](float velocityCm, int stopsAt)
         {
             ogs::Publisher p;
+            bool stayed = true;
+            float after = 0.0f;
+            for (int i = 0; i < 960; i++)
+            {
+                const int moved = i < 120 ? i : i < 720 ? 120 : i - 600;
+                p.tick(dt, true, Vec3{ moved * perTickCm, 0, 0 }, level, true, Vec3{ 6800.0f, 0, 0 });
+                stayed = stayed && p.using_engine_velocity();
+                if (i > 90) after = (std::max)(after, std::abs(p.last_specific_force().Z));
+            }
+            std::printf("pose completely still for 10 s then resumed: peak surge %.2f\n", after);
+            Check("a completely still pose never switches, however long", stayed);
+            Check("a long still pose causes no surge spike", after < 0.5f);
+        }
+
+        auto rejectedAt = [&](float velocityCm, float creepAfterTick)
+        {
+            ogs::Publisher p;
+            float x = 0.0f;
             for (int i = 0; i < 900; i++)
             {
-                const int moved = i < stopsAt ? i : stopsAt;
-                p.tick(dt, true, Vec3{ moved * perTickCm, 0, 0 }, level, true, Vec3{ velocityCm, 0, 0 });
+                x += i < creepAfterTick ? perTickCm : 0.03f * perTickCm;
+                p.tick(dt, true, Vec3{ x, 0, 0 }, level, true, Vec3{ velocityCm, 0, 0 });
                 if (!p.using_engine_velocity()) return i;
             }
             return -1;
         };
-        const int stuck = rejectedAt(6800.0f, 120);
+        const int creeping = rejectedAt(6800.0f, 120);
         const int huge = rejectedAt(680000.0f, 900);
-        std::printf("pose stuck for good: rejected at tick %d; velocity 100x too big: tick %d\n", stuck, huge);
-        Check("a pose that stays frozen is eventually not believed", stuck > 300 && stuck <= 450);
+        std::printf("pose creeping at 3%%: rejected at tick %d; velocity 100x too big: tick %d\n", creeping, huge);
+        Check("a pose that only creeps is eventually not believed", creeping > 300 && creeping <= 450);
         Check("a velocity 100x too big is still rejected", huge > 0 && huge <= 330);
+    }
+
+    {
+        const Quat level = RotatorToQuat(0, 0, 0);
+        {
+            ogs::Publisher p;
+            float x = 0.0f;
+            bool fellBack = false, trustedAgain = false;
+            for (int i = 0; i < 1500; i++)
+            {
+                const bool moving = (i % 360) < 240;
+                if (moving) x += 1000.0f * (float)dt;
+                p.tick(dt, true, Vec3{ x, 0, 0 }, level, true, Vec3{ 0, 0, 0 });
+                if (!p.using_engine_velocity()) fellBack = true;
+                else if (fellBack) trustedAgain = true;
+            }
+            Check("velocity stuck at zero: standing still does not restore trust",
+                  fellBack && !trustedAgain);
+        }
+        {
+            ogs::Publisher p;
+            float x = 0.0f;
+            bool fellBack = false;
+            for (int i = 0; i < 600; i++)
+            {
+                const float speedCm = i < 200 ? 1000.0f : 300.0f;
+                x += speedCm * (float)dt;
+                p.tick(dt, true, Vec3{ x, 0, 0 }, level, true, Vec3{ i < 200 ? 0.0f : speedCm, 0, 0 });
+                fellBack = fellBack || !p.using_engine_velocity();
+            }
+            Check("a velocity that comes right while walking is trusted again",
+                  fellBack && p.using_engine_velocity());
+        }
+        {
+            ogs::Publisher p;
+            float x = 0.0f, peak = 0.0f;
+            for (int i = 0; i < 360; i++)
+            {
+                double step = dt;
+                int simSteps = 1;
+                if (i % 30 == 10) simSteps = 2;
+                if (i % 30 == 20) step = 2 * dt;
+                x += simSteps * 6800.0f * (float)dt;
+                const bool readFailed = i % 90 == 40;
+                p.tick(step, true, Vec3{ x, 0, 0 }, level, !readFailed,
+                       readFailed ? Vec3{} : Vec3{ 6800.0f, 0, 0 });
+                if (i > 90) peak = (std::max)(peak, std::abs(p.last_specific_force().Z));
+            }
+            std::printf("single failed velocity reads at 68 m/s: peak surge %.2f\n", peak);
+            Check("a single failed velocity read causes no surge spike", peak < 0.5f);
+        }
     }
 
     std::printf("smoke: %d passed, %d failed\n", g_pass, g_fail);

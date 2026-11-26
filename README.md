@@ -95,8 +95,10 @@ tick from the sampled pose and the pawn's engine-measured velocity
 
 Derivation details: velocity comes from the engine. While that reading
 disagrees with how the pawn moves, velocity comes from position deltas,
-which are noisier. That takes three failed half-second checks in a row. A check where the pawn
-barely moved isn't counted, for up to six in a row, and the debug log records each failure and the source in use. Acceleration is low-pass filtered (τ = 0.1 s),
+which are noisier. That takes three failed half-second checks in a row. A
+check where the pawn didn't move at all isn't counted, and one where it
+barely moved isn't counted for up to six in a row. The debug log records each
+failure and the source in use. Acceleration is low-pass filtered (τ = 0.1 s),
 and teleports (> 2.5 m per tick) reset the estimator instead of
 spiking. Receivers with native accelerometer-class sources get that
 bound directly instead; senders that derive still beat receiver-side

@@ -242,7 +242,7 @@ static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
                 DebugLog("t=%.3f velocity check not counted, the pose barely moved: moved %.1f m, "
                          "engine velocity explains %.1f m\n",
                          g_publisher.stream_time(), check.path_metres(), check.claimed_metres());
-            else if (failures > 0 && failures <= ogs::VelocityCheck::FailuresBeforeDistrust)
+            else if (check.failed_last_window() && failures <= ogs::VelocityCheck::FailuresBeforeDistrust)
                 DebugLog("t=%.3f velocity check failed (%d in a row): unexplained %.1f m, allowed %.1f m, "
                          "moved %.1f m, engine reading %.1f %.1f %.1f cm/s\n",
                          g_publisher.stream_time(), failures, check.unexplained_metres(),

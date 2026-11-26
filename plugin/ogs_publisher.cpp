@@ -53,13 +53,19 @@ bool VelocityCheck::Update(double dt, const Vec3& positionM, const Vec3& velocit
         lastClaimedMetres_ = claimedMetres_;
         ++windows_;
         const bool failed = lastUnexplainedMetres_ > lastAllowedMetres_;
-        const bool frozen = failed && pathMetres_ < FrozenShareOfClaimed * claimedMetres_;
-        frozenInARow_ = frozen ? frozenInARow_ + 1 : 0;
-        skippedAsFrozen_ = frozen && frozenInARow_ <= MaxFrozenWindowsInARow;
+        const bool still = pathMetres_ < StillPathMetres;
+        const bool barely = failed && !still && pathMetres_ < FrozenShareOfClaimed * claimedMetres_;
+        if (!still) frozenInARow_ = barely ? frozenInARow_ + 1 : 0;
+        skippedAsFrozen_ = failed && (still || (barely && frozenInARow_ <= MaxFrozenWindowsInARow));
+        failedLastWindow_ = failed;
+        const bool movedEnoughToJudge = pathMetres_ > 2.0f * AllowedErrorMetres;
         if (!failed)
         {
-            failures_ = 0;
-            trusted_ = true;
+            if (movedEnoughToJudge)
+            {
+                failures_ = 0;
+                trusted_ = true;
+            }
         }
         else if (!skippedAsFrozen_ && ++failures_ >= FailuresBeforeDistrust)
         {
@@ -175,11 +181,13 @@ void Publisher::tick(double dt, bool hasPose,
             }
             bool useEngineVelocity = false;
             if (hasVel)
-            {
-                const bool wasTrusted = velocityCheck_.trusted();
                 useEngineVelocity = velocityCheck_.Update(dt, std, vel);
-                if (useEngineVelocity != wasTrusted)
-                    deriver_ = telemetry::BodyDynamicsDeriver{};
+            else
+                velocityCheck_.Interrupt();
+            if (useEngineVelocity != derivingFromEngine_)
+            {
+                deriver_ = telemetry::BodyDynamicsDeriver{};
+                derivingFromEngine_ = useEngineVelocity;
             }
             deriver_.Sample(dt, std, stdQ, useEngineVelocity, vel);
         }

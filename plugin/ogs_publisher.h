@@ -53,7 +53,9 @@ public:
     float path_metres() const { return lastPathMetres_; }
     float claimed_metres() const { return lastClaimedMetres_; }
     bool skipped_as_frozen() const { return skippedAsFrozen_; }
+    bool failed_last_window() const { return failedLastWindow_; }
     void Restart();
+    void Interrupt() { hasPrevious_ = false; }
     bool Update(double dt, const telemetry::Vec3& positionM,
                 const telemetry::Vec3& velocityM);
 
@@ -62,11 +64,12 @@ private:
     static constexpr float AllowedErrorOfPath = 0.5f;
     static constexpr float AllowedErrorMetres = 0.5f;
     static constexpr float FrozenShareOfClaimed = 0.1f;
+    static constexpr float StillPathMetres = 0.001f;
 
     telemetry::Vec3 previous_{}, unexplained_{};
     float pathMetres_ = 0.0f, claimedMetres_ = 0.0f, lastClaimedMetres_ = 0.0f;
     int frozenInARow_ = 0;
-    bool skippedAsFrozen_ = false;
+    bool skippedAsFrozen_ = false, failedLastWindow_ = false;
     float lastUnexplainedMetres_ = 0.0f, lastAllowedMetres_ = 0.0f, lastPathMetres_ = 0.0f;
     double seconds_ = 0.0;
     int windows_ = 0, failures_ = 0;
@@ -146,6 +149,7 @@ private:
     telemetry::BodyDynamicsDeriver deriver_;
     bool hadPose_ = false;
     VelocityCheck velocityCheck_;
+    bool derivingFromEngine_ = false;
     bool paused_ = false, wasPaused_ = false;
     PublisherConfig cfg_;
     std::string typeLabel_;
