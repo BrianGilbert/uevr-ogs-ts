@@ -26,8 +26,8 @@ Support & discussion: [Discord](https://discord.gg/yyCp5D2Ccp)
 
 Status: **in-game verified (UE4 and UE5)** — first live session on Stray
 (UE4) walked the cat around a room while a receiver watched the wire;
-that session exposed and fixed a FVector ABI footgun (UE4 floats read
-as UE5 doubles → position 0,0,~1e30). The ABI is now auto-detected at
+that session exposed and fixed an `FVector` ABI pitfall (UE4 floats read
+as UE5 doubles → position 0,0,~1e30). The ABI is now detected automatically at
 runtime (see Install). Standalone checks: `Test/smoke.cpp`, 16/16
 (wire + derived-dynamics + pause assertions).
 
@@ -48,6 +48,16 @@ The pawn is the rigid body whose inertial frame a motion rig reproduces.
 (If a game's pawn is a vehicle, set `objectType=vehicle` in the config.)
 
 ## Install
+
+### With Rai Pal
+
+In [Rai Pal](https://github.com/Raicuparta/rai-pal), select the game and
+install **OGS Telemetry (UEVR)**. It uses Rai Pal's UEVR and goes into its
+shared UEVR plugins folder, so there's nothing to download or copy. Then run
+the game with UEVR through Rai Pal. Telemetry starts with the first pawn, and
+the optional settings below still apply.
+
+### Without Rai Pal
 
 1. Build locally (`cmake -B build && cmake --build build --config
    Release` → `build/Release/ogs_telemetry.dll`) or grab a prebuilt
@@ -73,7 +83,7 @@ engine=auto            ; auto (default: probes FVector size) | ue5 | ue4
 ```
 
 The tracked pawn's class name is surfaced automatically as the object's
-`typeLabel` in discovery (e.g. "BP_PlayerCharacter_C"), re-sent when
+`typeLabel` in discovery (for example "BP_PlayerCharacter_C"), re-sent when
 possession changes under a new discovery `generation` (the label is
 object identity; motion frames carry the generation too);
 `objectName` stays the stable matching key.
@@ -104,20 +114,8 @@ spiking. Receivers with native accelerometer-class sources get that
 bound directly instead; senders that derive still beat receiver-side
 Euler differentiation (GameConn `docs/cueing.md`).
 
-Pair with a receiver, e.g. ogs-ts-dotnet's
+Pair with a receiver, for example ogs-ts-dotnet's
 `dotnet run --project src/TelemetryReceive`.
-
-### Via Rai Pal
-
-Rai Pal manages per-game UEVR installs, plugin included:
-
-1. Select the game and click **Install UEVR**.
-2. Click the three-dots indicator to the right of **Uninstall** and pick
-   **Open Mod Folder**.
-3. In the folder that opens, create a `plugins` directory and drop
-   `ogs_telemetry.dll` into it (`plugins\ogs_telemetry.dll`).
-4. Click **Run** and load the game — telemetry starts with the first
-   pawn, no INI required.
 
 ## Testing
 
