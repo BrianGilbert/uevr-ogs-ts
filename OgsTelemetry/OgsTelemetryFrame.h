@@ -80,9 +80,10 @@ inline Vec3 Rotate(const Quat& q, const Vec3& v)
 // (UEVR GetVelocity); otherwise it is derived from positions: a velocity
 // is taken each time the position changes (or after StillAfterSeconds
 // without a change), over the time since the previous change, and
-// acceleration comes from the median of the last MedianSamples, so physics
-// steps that don't line up with the host's ticks don't read as
-// acceleration. Acceleration is low-pass filtered (τ = 0.1 s) to tame
+// acceleration is each change in the median of the last MedianSamples,
+// applied on the one tick it happens, so it adds up to the change in that
+// velocity, and physics steps that don't line up with the host's ticks
+// don't read as acceleration. Acceleration is low-pass filtered (τ = 0.1 s) to tame
 // sampling jitter;
 // angular velocity is NOT filtered (onset cues need its edges). Teleports
 // are detected as moves the best available velocity estimate cannot
@@ -164,7 +165,7 @@ struct BodyDynamicsDeriver
                 Reset(position, orientation);
                 return;
             }
-            accel = heldAccel_;
+            accel = positionAccel_;
         }
 
         // one-pole low-pass: y += (x − y)·dt/τ, stable for any dt
@@ -237,7 +238,7 @@ private:
     bool UpdateFromPosition(double dt, const Vec3& position)
     {
         sinceNewPose_ += dt;
-        sinceMedian_ += dt;
+        positionAccel_ = Vec3{};
         const Vec3 moved = Sub(position, lastNewPosition_);
         if (Len(moved) < SamePositionMetres && sinceNewPose_ < StillAfterSeconds)
             return true;
@@ -261,10 +262,9 @@ private:
 
         const Vec3 median{ MedianOf(0), MedianOf(1), MedianOf(2) };
         if (hasMedian_)
-            heldAccel_ = Scale(Sub(median, median_), (float)(1.0 / sinceMedian_));
+            positionAccel_ = Scale(Sub(median, median_), (float)(1.0 / dt));
         median_ = median;
         hasMedian_ = true;
-        sinceMedian_ = 0.0;
         return true;
     }
 
@@ -292,9 +292,9 @@ private:
     {
         recentCount_ = recentNext_ = 0;
         hasMedian_ = false;
-        heldAccel_ = Vec3{};
+        positionAccel_ = Vec3{};
         lastNewPosition_ = position;
-        sinceNewPose_ = sinceMedian_ = 0.0;
+        sinceNewPose_ = 0.0;
     }
 
     Vec3 prevPosition_{}, prevVelocity_{}, filteredAccel_{};
@@ -303,9 +303,9 @@ private:
     bool needsVelocitySeed_ = false; // next sample seeds prevVelocity_ instead of differencing
     bool pendingTeleport_ = false; // no-velocity path: one strike is accel onset, two is a teleport
     Vec3 recent_[MedianSamples]{};
-    Vec3 lastNewPosition_{}, median_{}, heldAccel_{};
+    Vec3 lastNewPosition_{}, median_{}, positionAccel_{};
     int recentCount_ = 0, recentNext_ = 0;
-    double sinceNewPose_ = 0.0, sinceMedian_ = 0.0;
+    double sinceNewPose_ = 0.0;
     bool hasMedian_ = false;
 };
 
