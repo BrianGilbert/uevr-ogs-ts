@@ -161,6 +161,122 @@ int main()
               std::abs(av.Y) < 1e-6f && std::abs(av.Z) < 1e-6f);
     }
 
+    {
+        constexpr float StepSpeedCm = 6800.0f;
+        const Quat level = RotatorToQuat(0, 0, 0);
+        auto peakSurge = [&](bool hasVel, float reportedScale, float accelCm)
+        {
+            ogs::Publisher p;
+            float distance = 0.0f, speed = StepSpeedCm, peak = 0.0f;
+            for (int i = 0; i < 240; i++)
+            {
+                double step = dt;
+                int simSteps = 1;
+                if (i % 30 == 10) simSteps = 2;
+                if (i % 30 == 20) { step = 2 * dt; simSteps = 1; }
+                for (int s = 0; s < simSteps; s++)
+                {
+                    speed += accelCm * (float)dt;
+                    distance += speed * (float)dt;
+                }
+                p.tick(step, true, Vec3{ distance, 0, 0 }, level, hasVel,
+                       Vec3{ speed * reportedScale, 0, 0 });
+                if (i > 120) peak = (std::max)(peak, std::abs(p.last_specific_force().Z));
+            }
+            return std::pair<float, float>(peak, p.last_specific_force().Z);
+        };
+
+        const auto fromPosition = peakSurge(false, 0.0f, 0.0f);
+        const auto fromEngine = peakSurge(true, 1.0f, 0.0f);
+        std::printf("uneven stepping at constant speed: peak surge position=%.1f engine=%.2f\n",
+                    fromPosition.first, fromEngine.first);
+        Check("uneven stepping: position deltas alone spike (the field symptom)",
+              fromPosition.first > 100.0f);
+        Check("uneven stepping: engine velocity keeps surge quiet",
+              fromEngine.first < 0.5f);
+
+        const auto deadReading = peakSurge(true, 0.0f, 1000.0f);
+        std::printf("engine velocity stuck at zero while accelerating 10 m/s^2: surge=%.1f\n",
+                    deadReading.second);
+        Check("dead engine velocity: falls back to position deltas",
+              std::abs(deadReading.second) > 3.0f);
+
+        ogs::Publisher parked;
+        for (int i = 0; i < 120; i++)
+            parked.tick(dt, true, Vec3{ 0, 0, 0 }, level, true, Vec3{ 0, 0, 0 });
+        Check("parked: a zero engine velocity is believed", parked.using_engine_velocity());
+
+        ogs::Publisher wrongWay;
+        for (int i = 0; i < 120; i++)
+            wrongWay.tick(dt, true, Vec3{ i * 100.0f, 0, 0 }, level, true, Vec3{ 0, 6000.0f, 0 });
+        Check("engine velocity in the wrong direction is rejected",
+              !wrongWay.using_engine_velocity());
+    }
+
+    {
+        const Quat level = RotatorToQuat(0, 0, 0);
+        auto firstFallbackTick = [&](int badFrom, int badTicks, int secondBadFrom = -1)
+        {
+            ogs::Publisher p;
+            for (int i = 0; i < 600; i++)
+            {
+                const bool bad = (i >= badFrom && i < badFrom + badTicks) ||
+                                 (secondBadFrom >= 0 && i >= secondBadFrom && i < secondBadFrom + badTicks);
+                p.tick(dt, true, Vec3{ i * 6800.0f * (float)dt, 0, 0 }, level, true,
+                       Vec3{ bad ? 0.0f : 6800.0f, 0, 0 });
+                if (!p.using_engine_velocity()) return i;
+            }
+            return -1;
+        };
+        for (int offset = 0; offset < 30; offset += 5)
+        {
+            Check("a 0.9 s disagreement keeps engine velocity", firstFallbackTick(120 + offset, 54) < 0);
+        }
+        Check("separate brief disagreements do not add up", firstFallbackTick(120, 54, 300) < 0);
+        const int at = firstFallbackTick(120, 480);
+        std::printf("lasting disagreement from tick 120: fell back at tick %d\n", at);
+        Check("a lasting disagreement falls back after 1 to 2.1 s", at >= 180 && at <= 246);
+    }
+
+    {
+        const Quat level = RotatorToQuat(0, 0, 0);
+        const float perTickCm = 6800.0f * (float)dt;
+        bool kept = true;
+        float peak = 0.0f;
+        for (int offset = 0; offset < 30; offset += 3)
+        {
+            ogs::Publisher p;
+            const int frozeAt = 120 + offset, frozenTicks = 90;
+            for (int i = 0; i < 480; i++)
+            {
+                const int moved = i < frozeAt ? i : i < frozeAt + frozenTicks ? frozeAt : i - frozenTicks;
+                p.tick(dt, true, Vec3{ moved * perTickCm, 0, 0 }, level, true, Vec3{ 6800.0f, 0, 0 });
+                kept = kept && p.using_engine_velocity();
+                if (i > 90) peak = (std::max)(peak, std::abs(p.last_specific_force().Z));
+            }
+        }
+        std::printf("pose frozen 1.5 s at 68 m/s then resumed: peak surge %.2f\n", peak);
+        Check("a briefly frozen pose keeps engine velocity", kept);
+        Check("a briefly frozen pose causes no surge spike", peak < 0.5f);
+
+        auto rejectedAt = [&](float velocityCm, int stopsAt)
+        {
+            ogs::Publisher p;
+            for (int i = 0; i < 900; i++)
+            {
+                const int moved = i < stopsAt ? i : stopsAt;
+                p.tick(dt, true, Vec3{ moved * perTickCm, 0, 0 }, level, true, Vec3{ velocityCm, 0, 0 });
+                if (!p.using_engine_velocity()) return i;
+            }
+            return -1;
+        };
+        const int stuck = rejectedAt(6800.0f, 120);
+        const int huge = rejectedAt(680000.0f, 900);
+        std::printf("pose stuck for good: rejected at tick %d; velocity 100x too big: tick %d\n", stuck, huge);
+        Check("a pose that stays frozen is eventually not believed", stuck > 300 && stuck <= 450);
+        Check("a velocity 100x too big is still rejected", huge > 0 && huge <= 330);
+    }
+
     std::printf("smoke: %d passed, %d failed\n", g_pass, g_fail);
     return g_fail == 0 ? 0 : 1;
 }

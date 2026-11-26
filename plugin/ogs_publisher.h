@@ -39,6 +39,40 @@ struct PublisherConfig
     bool sendDynamics = true; // emit the bodyDynamics union variant
 };
 
+class VelocityCheck
+{
+public:
+    static constexpr int FailuresBeforeDistrust = 3;
+    static constexpr int MaxFrozenWindowsInARow = 6;
+
+    bool trusted() const { return trusted_; }
+    int windows() const { return windows_; }
+    int failures_in_a_row() const { return failures_; }
+    float unexplained_metres() const { return lastUnexplainedMetres_; }
+    float allowed_metres() const { return lastAllowedMetres_; }
+    float path_metres() const { return lastPathMetres_; }
+    float claimed_metres() const { return lastClaimedMetres_; }
+    bool skipped_as_frozen() const { return skippedAsFrozen_; }
+    void Restart();
+    bool Update(double dt, const telemetry::Vec3& positionM,
+                const telemetry::Vec3& velocityM);
+
+private:
+    static constexpr double WindowSeconds = 0.5;
+    static constexpr float AllowedErrorOfPath = 0.5f;
+    static constexpr float AllowedErrorMetres = 0.5f;
+    static constexpr float FrozenShareOfClaimed = 0.1f;
+
+    telemetry::Vec3 previous_{}, unexplained_{};
+    float pathMetres_ = 0.0f, claimedMetres_ = 0.0f, lastClaimedMetres_ = 0.0f;
+    int frozenInARow_ = 0;
+    bool skippedAsFrozen_ = false;
+    float lastUnexplainedMetres_ = 0.0f, lastAllowedMetres_ = 0.0f, lastPathMetres_ = 0.0f;
+    double seconds_ = 0.0;
+    int windows_ = 0, failures_ = 0;
+    bool trusted_ = true, hasPrevious_ = false;
+};
+
 class Publisher
 {
 public:
@@ -75,10 +109,10 @@ public:
     /// Advances the clock by dt seconds and, if a pose is available,
     /// publishes at the configured cadence. posCm is UE world centimetres;
     /// quat is UE world orientation (x,y,z,w). velCm (UE world cm/s) is
-    /// the engine-measured velocity when the caller has one — the pawn's
-    /// movement component reading beats differentiating position; without
-    /// it the deriver falls back to position deltas. Derivation runs on
-    /// EVERY tick with a pose, not just at publish cadence.
+    /// the engine-measured velocity when the caller has one. Without it, or
+    /// while it disagrees with how the pose moves, the deriver uses position
+    /// deltas. Derivation runs on EVERY tick with a pose, not just at
+    /// publish cadence.
     void tick(double dt, bool hasPose,
               const telemetry::Vec3& posCm, const telemetry::Quat& quat,
               bool hasVel = false, const telemetry::Vec3& velCm = {});
@@ -88,6 +122,10 @@ public:
     const telemetry::Vec3& last_specific_force() const { return deriver_.SpecificForce; }
     /// Last derived angular velocity (rad/s, C-4 body frame).
     const telemetry::Vec3& last_angular_velocity() const { return deriver_.AngularVelocity; }
+
+    bool using_engine_velocity() const { return velocityCheck_.trusted(); }
+    const VelocityCheck& velocity_check() const { return velocityCheck_; }
+    double stream_time() const { return clock_; }
 
 private:
     static constexpr UINT_PTR INVALID_SOCKET_VALUE = (UINT_PTR)~0;
@@ -107,6 +145,7 @@ private:
     telemetry::WireBuilder wire_;
     telemetry::BodyDynamicsDeriver deriver_;
     bool hadPose_ = false;
+    VelocityCheck velocityCheck_;
     bool paused_ = false, wasPaused_ = false;
     PublisherConfig cfg_;
     std::string typeLabel_;

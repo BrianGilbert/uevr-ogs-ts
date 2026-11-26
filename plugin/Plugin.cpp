@@ -230,6 +230,37 @@ static void OnEngineTick(UEVR_UGameEngineHandle, float deltaSeconds)
         }
     }
     g_publisher.tick((double)deltaSeconds, hasPose, pos, quat, hasPose, vel);
+    if (hasPose)
+    {
+        static int loggedWindows = 0, loggedFailures = 0;
+        const ogs::VelocityCheck& check = g_publisher.velocity_check();
+        if (check.windows() != loggedWindows)
+        {
+            loggedWindows = check.windows();
+            const int failures = check.failures_in_a_row();
+            if (check.skipped_as_frozen())
+                DebugLog("t=%.3f velocity check not counted, the pose barely moved: moved %.1f m, "
+                         "engine velocity explains %.1f m\n",
+                         g_publisher.stream_time(), check.path_metres(), check.claimed_metres());
+            else if (failures > 0 && failures <= ogs::VelocityCheck::FailuresBeforeDistrust)
+                DebugLog("t=%.3f velocity check failed (%d in a row): unexplained %.1f m, allowed %.1f m, "
+                         "moved %.1f m, engine reading %.1f %.1f %.1f cm/s\n",
+                         g_publisher.stream_time(), failures, check.unexplained_metres(),
+                         check.allowed_metres(), check.path_metres(), vel.X, vel.Y, vel.Z);
+            else if (failures == 0 && loggedFailures > 0)
+                DebugLog("t=%.3f velocity check passed again\n", g_publisher.stream_time());
+            loggedFailures = failures;
+        }
+        static int loggedSource = -1;
+        const int source = g_publisher.using_engine_velocity() ? 1 : 0;
+        if (source != loggedSource)
+        {
+            loggedSource = source;
+            DebugLog("t=%.3f velocity source: %s (engine reading %.1f %.1f %.1f cm/s)\n",
+                     g_publisher.stream_time(), source ? "engine" : "position, the engine reading disagrees with movement",
+                     vel.X, vel.Y, vel.Z);
+        }
+    }
 }
 
 // ---- config ----

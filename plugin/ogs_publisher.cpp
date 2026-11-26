@@ -17,6 +17,62 @@ std::string StripInstanceSuffix(const std::string& name)
     return name.substr(0, us);
 }
 
+void VelocityCheck::Restart()
+{
+    unexplained_ = {};
+    pathMetres_ = 0.0f;
+    claimedMetres_ = 0.0f;
+    seconds_ = 0.0;
+    failures_ = 0;
+    frozenInARow_ = 0;
+    skippedAsFrozen_ = false;
+    hasPrevious_ = false;
+}
+
+bool VelocityCheck::Update(double dt, const Vec3& positionM, const Vec3& velocityM)
+{
+    const auto length = [](const Vec3& v) { return std::sqrt(v.X * v.X + v.Y * v.Y + v.Z * v.Z); };
+    if (hasPrevious_)
+    {
+        const Vec3 moved{ positionM.X - previous_.X, positionM.Y - previous_.Y,
+                          positionM.Z - previous_.Z };
+        unexplained_.X += moved.X - velocityM.X * (float)dt;
+        unexplained_.Y += moved.Y - velocityM.Y * (float)dt;
+        unexplained_.Z += moved.Z - velocityM.Z * (float)dt;
+        pathMetres_ += length(moved);
+        claimedMetres_ += length(velocityM) * (float)dt;
+        seconds_ += dt;
+    }
+    previous_ = positionM;
+    hasPrevious_ = true;
+    if (seconds_ >= WindowSeconds)
+    {
+        lastUnexplainedMetres_ = length(unexplained_);
+        lastAllowedMetres_ = AllowedErrorOfPath * pathMetres_ + AllowedErrorMetres;
+        lastPathMetres_ = pathMetres_;
+        lastClaimedMetres_ = claimedMetres_;
+        ++windows_;
+        const bool failed = lastUnexplainedMetres_ > lastAllowedMetres_;
+        const bool frozen = failed && pathMetres_ < FrozenShareOfClaimed * claimedMetres_;
+        frozenInARow_ = frozen ? frozenInARow_ + 1 : 0;
+        skippedAsFrozen_ = frozen && frozenInARow_ <= MaxFrozenWindowsInARow;
+        if (!failed)
+        {
+            failures_ = 0;
+            trusted_ = true;
+        }
+        else if (!skippedAsFrozen_ && ++failures_ >= FailuresBeforeDistrust)
+        {
+            trusted_ = false;
+        }
+        unexplained_ = {};
+        pathMetres_ = 0.0f;
+        claimedMetres_ = 0.0f;
+        seconds_ = 0.0;
+    }
+    return trusted_;
+}
+
 void Publisher::set_type_label(const char* label)
 {
     std::string s = StripInstanceSuffix(label ? label : "");
@@ -112,8 +168,20 @@ void Publisher::tick(double dt, bool hasPose,
         // derivation fresh rather than differentiating across the pause
         if (!paused_)
         {
-            if (wasPaused_) deriver_ = telemetry::BodyDynamicsDeriver{};
-            deriver_.Sample(dt, std, stdQ, hasVel, vel);
+            if (wasPaused_)
+            {
+                deriver_ = telemetry::BodyDynamicsDeriver{};
+                velocityCheck_.Restart();
+            }
+            bool useEngineVelocity = false;
+            if (hasVel)
+            {
+                const bool wasTrusted = velocityCheck_.trusted();
+                useEngineVelocity = velocityCheck_.Update(dt, std, vel);
+                if (useEngineVelocity != wasTrusted)
+                    deriver_ = telemetry::BodyDynamicsDeriver{};
+            }
+            deriver_.Sample(dt, std, stdQ, useEngineVelocity, vel);
         }
         // schedule by accumulation: advancing from the previous due time (not
         // the late send time) keeps the long-run rate at motionHz whatever the
@@ -132,6 +200,7 @@ void Publisher::tick(double dt, bool hasPose,
         // land the new pawn near the old world position, which the
         // teleport detector alone would not catch
         deriver_ = telemetry::BodyDynamicsDeriver{};
+        velocityCheck_.Restart();
     }
     hadPose_ = hasPose;
     wasPaused_ = paused_;
