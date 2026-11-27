@@ -192,11 +192,12 @@ void Publisher::tick(double dt, bool hasPose,
             deriver_.Sample(dt, std, stdQ, useEngineVelocity, vel);
         }
         // schedule by accumulation: advancing from the previous due time (not
-        // the late send time) keeps the long-run rate at motionHz whatever the
+        // the send time) keeps the long-run rate at motionHz whatever the
         // host frame rate; a stall of more than one interval resyncs to now
         const double interval = 1.0 / cfg_.motionHz;
         const double due = lastMotion_ + interval;
-        if (clock_ >= due - 1e-6)
+        constexpr double motionEarlyShare = 0.25;
+        if (clock_ >= due - interval * motionEarlyShare)
         {
             sendMotion(std, stdQ);
             lastMotion_ = (lastMotion_ < -1e17 || clock_ - due > interval) ? clock_ : due;
